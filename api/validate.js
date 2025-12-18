@@ -8,6 +8,10 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "Missing GOOGLE_CREDENTIALS env var" });
   }
 
+  if (req.method === "GET") {
+    return res.status(200).json({ ok: true, version: "v2" });
+  }
+
   const origin = req.headers.origin;
 
   // Allow only your real site(s)
