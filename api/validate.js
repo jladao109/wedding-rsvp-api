@@ -1,23 +1,25 @@
 import { google } from "googleapis";
 
 export default async function handler(req, res) {
-  // Allow your website to call this API from the browser
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  const allowedOrigins = new Set([
+    "https://bigornia2ladao.com",
+    "https://www.bigornia2ladao.com"
+  ]);
+
+  const origin = req.headers.origin;
+
+  if (allowedOrigins.has(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+
+  res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  // Browser sends an OPTIONS "check" request before POST sometimes
   if (req.method === "OPTIONS") return res.status(204).end();
+  if (req.method !== "POST") return res.status(405).json({ error: "Use POST" });
 
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Use POST" });
-  }
-
-  // ---- your existing code below this line ----
-  const { lastName, zip } = req.body || {};
-  if (!lastName || !zip) return res.status(400).json({ error: "Missing info" });
-
-  // ...keep your Google Sheets logic here...
+  // ...the rest of your existing code...
 }
 
 /**
