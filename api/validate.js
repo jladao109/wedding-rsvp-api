@@ -156,7 +156,10 @@ export default async function handler(req, res) {
       zips,
     });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Server error" });
+      console.error(err);
+      return res.status(500).json({
+        error: "Server error",
+        details: err?.message || String(err)
+      });
   }
 }
