@@ -1,6 +1,13 @@
 import { google } from "googleapis";
 
 export default async function handler(req, res) {
+  if (!process.env.SPREADSHEET_ID) {
+    return res.status(500).json({ error: "Missing SPREADSHEET_ID env var" });
+  }
+  if (!process.env.GOOGLE_CREDENTIALS) {
+    return res.status(500).json({ error: "Missing GOOGLE_CREDENTIALS env var" });
+  }
+
   const origin = req.headers.origin;
 
   // Allow only your real site(s)
