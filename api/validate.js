@@ -1,134 +1,116 @@
 import { google } from "googleapis";
 
-/**
- * Sheet format expected:
- * A = Party ID (optional)
- * B = Names  (e.g. "Smith, John, Jr; Smith, Jane"  suffix optional)
- * C = ZIPs   (e.g. "07001;07002" OR "07001")
- *
- * Update the range tab name if needed: "Guests!A2:C"
- */
+const TAB_NAME = "Guests"; // ✅ change if your sheet tab is not named "Guests"
 
-function norm(s) {
-  return String(s ?? "").trim();
+// RSVP cutoff: March 7, 2026 11:59 PM PST = March 8, 2026 07:59 UTC
+const CUTOFF_UTC = Date.parse("2026-03-08T07:59:00Z");
+
+function nowUtcMs() {
+  return Date.now();
 }
-function normLower(s) {
-  return norm(s).toLowerCase();
-}
-function parseDelimitedList(cell, delimiter = ";") {
-  return norm(cell)
-    .split(delimiter)
-    .map((x) => x.trim())
-    .filter(Boolean);
-}
-function parseNameTriplet(nameStr) {
-  const parts = nameStr.split(",").map((p) => p.trim()).filter(Boolean);
-  const last = parts[0] ?? "";
-  const first = parts[1] ?? "";
-  const suffix = parts[2] ?? ""; // optional
-  const display =
-    [first, last].filter(Boolean).join(" ") + (suffix ? `, ${suffix}` : "");
-  return { last, first, suffix, display: display.trim() };
-}
-function parseNamesCell(namesCell) {
-  return parseDelimitedList(namesCell, ";")
-    .map(parseNameTriplet)
-    .filter((p) => p.last || p.first);
+
+function norm(s) { return String(s ?? "").trim(); }
+function normLower(s) { return norm(s).toLowerCase(); }
+function splitList(cell, delim = ";") {
+  return norm(cell).split(delim).map(x => x.trim()).filter(Boolean);
 }
 function parseZipsCell(zipsCell) {
-  return parseDelimitedList(zipsCell, ";").map((z) => z.replace(/\s+/g, ""));
+  return splitList(zipsCell, ";").map(z => z.replace(/\s+/g, ""));
+}
+function parseNameTriplet(nameStr) {
+  const parts = nameStr.split(",").map(p => p.trim()).filter(Boolean);
+  const last = parts[0] ?? "";
+  const first = parts[1] ?? "";
+  const suffix = parts[2] ?? "";
+  const display = [first, last, suffix].filter(Boolean).join(" ");
+  return { lastName: last, firstName: first, suffix, display };
+}
+function parseNamesCell(namesCell) {
+  return splitList(namesCell, ";").map(parseNameTriplet).filter(p => p.lastName || p.firstName);
 }
 
-export default async function handler(req, res) {
-  // ✅ CORS: allow only your real site(s)
+function setCors(req, res) {
   const origin = req.headers.origin;
-  const allowedOrigins = new Set([
-    "https://bigornia2ladao.com",
-    "https://www.bigornia2ladao.com",
-  ]);
-
-  if (allowedOrigins.has(origin)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-  }
+  const allowed = new Set(["https://bigornia2ladao.com", "https://www.bigornia2ladao.com"]);
+  if (allowed.has(origin)) res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS, GET");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+}
 
-  // Preflight
+export default async function handler(req, res) {
+  setCors(req, res);
   if (req.method === "OPTIONS") return res.status(204).end();
 
-  // Simple health check
   if (req.method === "GET") {
-    return res.status(200).json({ ok: true, version: "v3" });
+    return res.status(200).json({ ok: true, version: "v1-validate" });
   }
 
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Use POST" });
+  if (req.method !== "POST") return res.status(405).json({ error: "Use POST" });
+
+  if (nowUtcMs() > CUTOFF_UTC) {
+    return res.status(200).json({ cutoffPassed: true, valid: false, matches: [] });
   }
 
-  // Env var checks (helps avoid silent 500s)
-  if (!process.env.SPREADSHEET_ID) {
-    return res.status(500).json({ error: "Missing SPREADSHEET_ID env var" });
-  }
-  if (!process.env.GOOGLE_CREDENTIALS) {
-    return res.status(500).json({ error: "Missing GOOGLE_CREDENTIALS env var" });
-  }
+  if (!process.env.SPREADSHEET_ID) return res.status(500).json({ error: "Missing SPREADSHEET_ID env var" });
+  if (!process.env.GOOGLE_CREDENTIALS) return res.status(500).json({ error: "Missing GOOGLE_CREDENTIALS env var" });
 
   const lastNameInput = normLower(req.body?.lastName);
-  const zipInput = norm(req.body?.zip).replace(/\s+/g, "");
+  const zipInputRaw = norm(req.body?.zip);
+  const zipInput = zipInputRaw.replace(/\s+/g, "");
 
-  if (!lastNameInput || !zipInput) {
-    return res.status(400).json({ error: "Please provide lastName and zip." });
-  }
+  if (!lastNameInput) return res.status(400).json({ error: "Please provide lastName." });
 
   try {
     const auth = new google.auth.GoogleAuth({
       credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS),
       scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
     });
-
     const sheets = google.sheets({ version: "v4", auth });
 
+    // A=PartyId, B=Names, C=Zips, D=Seats
+    const range = `${TAB_NAME}!A2:D`;
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.SPREADSHEET_ID,
-      range: "Guests!A2:C", // <-- change "Guests" if your tab name differs
+      range,
     });
 
     const rows = response.data.values || [];
 
-    const match = rows.find((row) => {
+    const matches = [];
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const partyId = row[0] ?? "";
       const namesCell = row[1] ?? "";
       const zipsCell = row[2] ?? "";
-
-      const zips = parseZipsCell(zipsCell);
-      if (!zips.includes(zipInput)) return false;
+      const seats = row[3] ?? "";
 
       const people = parseNamesCell(namesCell);
-      const lastNames = people.map((p) => normLower(p.last));
+      const lastNames = people.map(p => normLower(p.lastName));
+      if (!lastNames.includes(lastNameInput)) continue;
 
-      return lastNames.includes(lastNameInput);
-    });
+      // ZIP optional: if blank, do not filter by ZIP
+      if (zipInput) {
+        const zips = parseZipsCell(zipsCell);
+        if (!zips.includes(zipInput)) continue;
+      }
 
-    if (!match) return res.json({ valid: false });
-
-    const partyId = match[0] ?? "";
-    const people = parseNamesCell(match[1] ?? "");
+      const rowNumber = i + 2; // since A2 is first data row
+      matches.push({
+        rowNumber,
+        partyId,
+        seatsReserved: seats,
+        guests: people
+      });
+    }
 
     return res.json({
-      valid: true,
-      partyId,
-      guests: people.map((p) => ({
-        lastName: p.last,
-        firstName: p.first,
-        suffix: p.suffix,
-        display: p.display,
-      })),
+      cutoffPassed: false,
+      valid: matches.length > 0,
+      matches
     });
   } catch (err) {
-    console.error("API ERROR:", err);
-    return res.status(500).json({
-      error: "Server error",
-      details: err?.message || String(err),
-    });
+    console.error("VALIDATE ERROR:", err);
+    return res.status(500).json({ error: "Server error", details: err?.message || String(err) });
   }
 }
