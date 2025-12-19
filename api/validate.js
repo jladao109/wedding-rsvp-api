@@ -1,16 +1,13 @@
 import { google } from "googleapis";
 
-const TAB_NAME = "Guests"; // ✅ change if your sheet tab is not named "Guests"
+const TAB_NAME = "Guests";
 
-// RSVP cutoff: March 7, 2026 11:59 PM PST = March 8, 2026 07:59 UTC
+// Cutoff: March 7, 2026 11:59 PM PST = March 8, 2026 07:59 UTC
 const CUTOFF_UTC = Date.parse("2026-03-08T07:59:00Z");
-
-function nowUtcMs() {
-  return Date.now();
-}
 
 function norm(s) { return String(s ?? "").trim(); }
 function normLower(s) { return norm(s).toLowerCase(); }
+
 function splitList(cell, delim = ";") {
   return norm(cell).split(delim).map(x => x.trim()).filter(Boolean);
 }
@@ -43,12 +40,12 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(204).end();
 
   if (req.method === "GET") {
-    return res.status(200).json({ ok: true, version: "v1-validate" });
+    return res.status(200).json({ ok: true, version: "v-prefill-validate" });
   }
 
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST" });
 
-  if (nowUtcMs() > CUTOFF_UTC) {
+  if (Date.now() > CUTOFF_UTC) {
     return res.status(200).json({ cutoffPassed: true, valid: false, matches: [] });
   }
 
@@ -66,9 +63,10 @@ export default async function handler(req, res) {
       credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS),
       scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
     });
+
     const sheets = google.sheets({ version: "v4", auth });
 
-    // A=PartyId, B=Names, C=Zips, D=Seats
+    // A=PartyId, B=Names, C=Zips, D=Seats, E..K saved RSVP fields
     const range = `${TAB_NAME}!A2:K`;
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.SPREADSHEET_ID,
@@ -80,12 +78,13 @@ export default async function handler(req, res) {
     const matches = [];
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
+
       const partyId = row[0] ?? "";
       const namesCell = row[1] ?? "";
       const zipsCell = row[2] ?? "";
       const seats = row[3] ?? "";
 
-      // NEW (prefill fields)
+      // Saved (E..K)
       const attending = row[4] ?? "";     // E
       const countComing = row[5] ?? "";   // F
       const comingList = row[6] ?? "";    // G
@@ -94,25 +93,23 @@ export default async function handler(req, res) {
       const email = row[9] ?? "";         // J
       const phone = row[10] ?? "";        // K
 
-
       const people = parseNamesCell(namesCell);
       const lastNames = people.map(p => normLower(p.lastName));
       if (!lastNames.includes(lastNameInput)) continue;
 
-      // ZIP optional: if blank, do not filter by ZIP
+      // ZIP optional: if blank, don't filter on ZIP
       if (zipInput) {
         const zips = parseZipsCell(zipsCell);
         if (!zips.includes(zipInput)) continue;
       }
 
-      const rowNumber = i + 2; // since A2 is first data row
+      const rowNumber = i + 2; // A2 is first data row
+
       matches.push({
         rowNumber,
         partyId,
         seatsReserved: seats,
         guests: people,
-
-        // NEW: existing RSVP saved data for prefilling
         saved: {
           attending,
           countComing,
@@ -120,16 +117,15 @@ export default async function handler(req, res) {
           mealsList,
           agesList,
           email,
-          phone
-        }
+          phone,
+        },
       });
-
     }
 
     return res.json({
       cutoffPassed: false,
       valid: matches.length > 0,
-      matches
+      matches,
     });
   } catch (err) {
     console.error("VALIDATE ERROR:", err);
