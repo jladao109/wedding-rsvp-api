@@ -69,7 +69,7 @@ export default async function handler(req, res) {
     const sheets = google.sheets({ version: "v4", auth });
 
     // A=PartyId, B=Names, C=Zips, D=Seats
-    const range = `${TAB_NAME}!A2:D`;
+    const range = `${TAB_NAME}!A2:K`;
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.SPREADSHEET_ID,
       range,
@@ -84,6 +84,16 @@ export default async function handler(req, res) {
       const namesCell = row[1] ?? "";
       const zipsCell = row[2] ?? "";
       const seats = row[3] ?? "";
+
+      // NEW (prefill fields)
+      const attending = row[4] ?? "";     // E
+      const countComing = row[5] ?? "";   // F
+      const comingList = row[6] ?? "";    // G
+      const mealsList = row[7] ?? "";     // H
+      const agesList = row[8] ?? "";      // I
+      const email = row[9] ?? "";         // J
+      const phone = row[10] ?? "";        // K
+
 
       const people = parseNamesCell(namesCell);
       const lastNames = people.map(p => normLower(p.lastName));
@@ -100,8 +110,20 @@ export default async function handler(req, res) {
         rowNumber,
         partyId,
         seatsReserved: seats,
-        guests: people
+        guests: people,
+
+        // NEW: existing RSVP saved data for prefilling
+        saved: {
+          attending,
+          countComing,
+          comingList,
+          mealsList,
+          agesList,
+          email,
+          phone
+        }
       });
+
     }
 
     return res.json({
