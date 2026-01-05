@@ -27,7 +27,7 @@ function norm(s) {
  * - RESEND_API_KEY
  * - RESEND_FROM (e.g. rsvp@bigornia2ladao.com)
  */
-async function sendEmailIfConfigured({ to, subject, html, text }) {
+async function sendEmailIfConfigured({ to, bcc, subject, html, text }) {
   const key = process.env.RESEND_API_KEY;
   const from = process.env.RESEND_FROM;
   if (!key || !from) return { skipped: true };
@@ -41,6 +41,7 @@ async function sendEmailIfConfigured({ to, subject, html, text }) {
     body: JSON.stringify({
       from,
       to,
+      bcc, // ✅ added
       subject,
       html,
       text,
@@ -132,8 +133,16 @@ export default async function handler(req, res) {
       </p>
     `;
 
+    // ✅ BCC list (requested)
+    const bcc = [
+      "rsvp@bigornia2ladao.com",
+      "yvbigornia@gmail.com",
+      "jason.ladao@gmail.com",
+    ];
+
     const emailResult = await sendEmailIfConfigured({
       to: email,
+      bcc,
       subject,
       text,
       html,
