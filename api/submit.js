@@ -41,7 +41,7 @@ async function sendEmailIfConfigured({ to, bcc, subject, html, text }) {
     body: JSON.stringify({
       from,
       to,
-      bcc, // ✅ added
+      bcc,
       subject,
       html,
       text,
@@ -83,6 +83,9 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Email is required." });
   }
 
+  // ✅ Party ID (safe fallback)
+  const partyId = norm(values.PARTY_ID || values.partyId || "Unknown");
+
   try {
     const auth = new google.auth.GoogleAuth({
       credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS),
@@ -113,27 +116,37 @@ export default async function handler(req, res) {
       },
     });
 
-    // ✅ UPDATED CONFIRMATION EMAIL COPY
-    const subject = "Yvette & Jason Wedding Confirmation";
+    // ✅ UPDATED CONFIRMATION EMAIL COPY (WITH PARTY ID)
+    const subject = `Yvette & Jason Wedding Confirmation — Party ${partyId}`;
 
     const text =
-      "Thank you! We received your response. If you need to make any changes, you have until March 7, 2026 to do so. " +
-      "You can update your RSVP directly on the official website (https://bigornia2ladao.com/rsvp).";
+      `Thank you! We received your response.\n\n` +
+      `Party ID: ${partyId}\n\n` +
+      `If you need to make any changes, you have until March 7, 2026 to do so.\n` +
+      `You can update your RSVP directly on the official website:\n` +
+      `https://bigornia2ladao.com/rsvp`;
 
     const html = `
       <p>Thank you! We received your response.</p>
+
       <p>
-        If you need to make any changes, you have until <strong>March 7, 2026</strong> to do so.
+        <strong>Party ID:</strong> ${partyId}
       </p>
+
       <p>
-        You can update your RSVP directly on the official website:
+        If you need to make any changes, you have until
+        <strong>March 7, 2026</strong> to do so.
+      </p>
+
+      <p>
+        You can update your RSVP directly on the official website:<br>
         <a href="https://bigornia2ladao.com/rsvp">
           bigornia2ladao.com/rsvp
         </a>
       </p>
     `;
 
-    // ✅ BCC list (requested)
+    // ✅ BCC list
     const bcc = [
       "rsvp@bigornia2ladao.com",
       "yvbigornia@gmail.com",
@@ -151,6 +164,7 @@ export default async function handler(req, res) {
     return res.json({
       ok: true,
       email,
+      partyId,
       emailResult,
     });
   } catch (err) {
