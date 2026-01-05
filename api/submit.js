@@ -23,9 +23,6 @@ function norm(s) {
 
 /**
  * Send confirmation email via Resend (if configured)
- * Env vars required:
- * - RESEND_API_KEY
- * - RESEND_FROM (e.g. rsvp@bigornia2ladao.com)
  */
 async function sendEmailIfConfigured({ to, bcc, subject, html, text }) {
   const key = process.env.RESEND_API_KEY;
@@ -35,7 +32,7 @@ async function sendEmailIfConfigured({ to, bcc, subject, html, text }) {
   const resp = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${key}`,
+      Authorization: `Bearer ${key}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -50,9 +47,10 @@ async function sendEmailIfConfigured({ to, bcc, subject, html, text }) {
 
   if (!resp.ok) {
     const body = await resp.text();
-    return { skipped: false, ok: false, details: body };
+    return { ok: false, details: body };
   }
-  return { skipped: false, ok: true };
+
+  return { ok: true };
 }
 
 export default async function handler(req, res) {
@@ -64,16 +62,7 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: "Cutoff passed" });
   }
 
-  if (!process.env.SPREADSHEET_ID) {
-    return res.status(500).json({ error: "Missing SPREADSHEET_ID env var" });
-  }
-  if (!process.env.GOOGLE_CREDENTIALS) {
-    return res.status(500).json({ error: "Missing GOOGLE_CREDENTIALS env var" });
-  }
-
-  const rowNumber = Number(req.body?.rowNumber);
-  const values = req.body?.values;
-
+  const { rowNumber, values } = req.body || {};
   if (!rowNumber || !values) {
     return res.status(400).json({ error: "Missing rowNumber or values." });
   }
@@ -83,8 +72,10 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Email is required." });
   }
 
-  // ✅ Party ID (safe fallback)
-  const partyId = norm(values.PARTY_ID || values.partyId || "Unknown");
+  const partyId = norm(values.PARTY_ID || "Unknown");
+  const rsvpValue = norm(values.E); // Y or N
+  const guestCount = norm(values.F);
+  const mealsRaw = norm(values.H); // "Last, First, Suffix, Meal; ..."
 
   try {
     const auth = new google.auth.GoogleAuth({
@@ -96,10 +87,10 @@ export default async function handler(req, res) {
 
     // Write back to columns E–K
     const updates = [
-      { range: `${TAB_NAME}!E${rowNumber}`, value: norm(values.E) },
-      { range: `${TAB_NAME}!F${rowNumber}`, value: norm(values.F) },
+      { range: `${TAB_NAME}!E${rowNumber}`, value: rsvpValue },
+      { range: `${TAB_NAME}!F${rowNumber}`, value: guestCount },
       { range: `${TAB_NAME}!G${rowNumber}`, value: norm(values.G) },
-      { range: `${TAB_NAME}!H${rowNumber}`, value: norm(values.H) },
+      { range: `${TAB_NAME}!H${rowNumber}`, value: mealsRaw },
       { range: `${TAB_NAME}!I${rowNumber}`, value: norm(values.I) },
       { range: `${TAB_NAME}!J${rowNumber}`, value: email },
       { range: `${TAB_NAME}!K${rowNumber}`, value: norm(values.K) },
@@ -116,62 +107,4 @@ export default async function handler(req, res) {
       },
     });
 
-    // ✅ UPDATED CONFIRMATION EMAIL COPY (WITH PARTY ID)
-    const subject = `Yvette & Jason Wedding Confirmation — Party ${partyId}`;
-
-    const text =
-      `Thank you! We received your response.\n\n` +
-      `Party ID: ${partyId}\n\n` +
-      `If you need to make any changes, you have until March 7, 2026 to do so.\n` +
-      `You can update your RSVP directly on the official website:\n` +
-      `https://bigornia2ladao.com/rsvp`;
-
-    const html = `
-      <p>Thank you! We received your response.</p>
-
-      <p>
-        <strong>Party ID:</strong> ${partyId}
-      </p>
-
-      <p>
-        If you need to make any changes, you have until
-        <strong>March 7, 2026</strong> to do so.
-      </p>
-
-      <p>
-        You can update your RSVP directly on the official website:<br>
-        <a href="https://bigornia2ladao.com/rsvp">
-          bigornia2ladao.com/rsvp
-        </a>
-      </p>
-    `;
-
-    // ✅ BCC list
-    const bcc = [
-      "rsvp@bigornia2ladao.com",
-      "yvbigornia@gmail.com",
-      "jason.ladao@gmail.com",
-    ];
-
-    const emailResult = await sendEmailIfConfigured({
-      to: email,
-      bcc,
-      subject,
-      text,
-      html,
-    });
-
-    return res.json({
-      ok: true,
-      email,
-      partyId,
-      emailResult,
-    });
-  } catch (err) {
-    console.error("SUBMIT ERROR:", err);
-    return res.status(500).json({
-      error: "Server error",
-      details: err?.message || String(err),
-    });
-  }
-}
+    // -------- Build meal list (onl
