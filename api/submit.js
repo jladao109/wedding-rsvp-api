@@ -113,16 +113,28 @@ export default async function handler(req, res) {
 
     if (rsvpValue === "Y" && mealsRaw) {
       mealsRaw.split(";").forEach(entry => {
-        const parts = entry.split(",").map(p => p.trim()).filter(Boolean);
-        if (parts.length >= 4) {
-          const last = parts[0];
-          const first = parts[1];
-          const meal = parts.slice(3).join(", ");
-          mealLinesHtml += `<p><strong>${first} ${last}:</strong><br>Meal Preference: ${meal}</p>`;
-          mealLinesText += `${first} ${last}:\nMeal Preference: ${meal}\n\n`;
-        }
+      const rawParts = entry.split(",").map(p => p.trim()); // IMPORTANT: do NOT filter empties
+
+      const last = rawParts[0] || "";
+      const first = rawParts[1] || "";
+
+      // Case A: "Last, First, Suffix, Meal..."
+      // Case B: "Last, First, , Meal..." (blank suffix still creates a 4th part)
+      // Case C: "Last, First, Meal..."  (no suffix)
+      let meal = "";
+      if (rawParts.length >= 4) {
+        meal = rawParts.slice(3).join(", ").trim();
+      } else if (rawParts.length >= 3) {
+        meal = rawParts.slice(2).join(", ").trim();
+      }
+
+      if (!last || !first || !meal) return;
+
+        mealLinesHtml += `<p><strong>${first} ${last}:</strong><br>Meal Preference: ${meal}</p>`;
+        mealLinesText += `${first} ${last}:\nMeal Preference: ${meal}\n\n`;
       });
     }
+
 
     // -------- Email content --------
     const subject = `Yvette & Jason Wedding Confirmation — Party ${partyId}`;
