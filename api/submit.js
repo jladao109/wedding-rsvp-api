@@ -107,4 +107,103 @@ export default async function handler(req, res) {
       },
     });
 
-    // -------- Build meal list (onl
+    // -------- Build meal list (only if RSVP = Y) --------
+    let mealLinesHtml = "";
+    let mealLinesText = "";
+
+    if (rsvpValue === "Y" && mealsRaw) {
+      mealsRaw.split(";").forEach(entry => {
+        const parts = entry.split(",").map(p => p.trim()).filter(Boolean);
+        if (parts.length >= 4) {
+          const last = parts[0];
+          const first = parts[1];
+          const meal = parts.slice(3).join(", ");
+          mealLinesHtml += `<p><strong>${first} ${last}:</strong><br>Meal Preference: ${meal}</p>`;
+          mealLinesText += `${first} ${last}:\nMeal Preference: ${meal}\n\n`;
+        }
+      });
+    }
+
+    // -------- Email content --------
+    const subject = `Yvette & Jason Wedding Confirmation — Party ${partyId}`;
+
+    const text = `
+Thank you! We received your response.
+
+Party ID: ${partyId}
+Number of Guests Coming: ${guestCount}
+RSVP: ${rsvpValue === "Y" ? "Joyfully Accepts" : "Regretfully Declines"}
+Email: ${email}
+
+${mealLinesText}
+If you need to make any changes, you have until March 7, 2026 to do so.
+
+You can update your RSVP directly on the official website:
+https://bigornia2ladao.com/rsvp
+
+Thank you for your RSVP — we hope you can make it and can’t wait to see you!
+
+Yvette & Jason
+    `.trim();
+
+    const html = `
+      <p><strong>Thank you! We received your response.</strong></p>
+
+      <p>
+        <strong>Party ID:</strong> ${partyId}<br>
+        <strong>Number of Guests Coming:</strong> ${guestCount}<br>
+        <strong>RSVP:</strong> ${rsvpValue === "Y" ? "Joyfully Accepts" : "Regretfully Declines"}<br>
+        <strong>Email:</strong> ${email}
+      </p>
+
+      ${mealLinesHtml}
+
+      <p>
+        If you need to make any changes, you have until
+        <strong>March 7, 2026</strong> to do so.
+      </p>
+
+      <p>
+        You can update your RSVP directly on the official website:<br>
+        <a href="https://bigornia2ladao.com/rsvp">
+          bigornia2ladao.com/rsvp
+        </a>
+      </p>
+
+      <p>
+        Thank you for your RSVP — we hope you can make it and can’t wait to see you!
+      </p>
+
+      <p>
+        <strong>Yvette & Jason</strong>
+      </p>
+    `;
+
+    const bcc = [
+      "rsvp@bigornia2ladao.com",
+      "yvbigornia@gmail.com",
+      "jason.ladao@gmail.com",
+    ];
+
+    const emailResult = await sendEmailIfConfigured({
+      to: email,
+      bcc,
+      subject,
+      html,
+      text,
+    });
+
+    return res.json({
+      ok: true,
+      email,
+      partyId,
+      emailResult,
+    });
+  } catch (err) {
+    console.error("SUBMIT ERROR:", err);
+    return res.status(500).json({
+      error: "Server error",
+      details: err?.message || String(err),
+    });
+  }
+}
