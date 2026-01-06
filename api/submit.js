@@ -107,7 +107,7 @@ export default async function handler(req, res) {
       },
     });
 
-    /* ---------- Build meal list (RSVP = Y only) ---------- */
+    /* ---------- Meal List (RSVP = Y only) ---------- */
     let mealLinesHtml = "";
     let mealLinesText = "";
 
@@ -131,25 +131,41 @@ export default async function handler(req, res) {
         const nameLine = `${first} ${last}${suffix ? " " + suffix : ""}`;
 
         mealLinesHtml += `
-          <p>
-            <strong>${nameLine}:</strong><br>
-            Meal Preference: ${meal}
+          <p style="margin-bottom:12px;">
+            <strong>${nameLine}</strong><br>
+            <em>${meal}</em>
           </p>
         `;
 
-        mealLinesText +=
-          `${nameLine}:\n` +
-          `Meal Preference: ${meal}\n\n`;
+        mealLinesText += `${nameLine}\n${meal}\n\n`;
       });
     }
 
-    /* ---------- Email copy ---------- */
+    /* ---------- Email Copy ---------- */
+
+    const isAccepting = rsvpValue === "Y";
+
+    const openingText = isAccepting
+      ? "Thank you for your RSVP — We’re so glad you’ll be joining us and can’t wait to see you!"
+      : "Thank you for your RSVP — We’re sorry you won’t be able to join us.";
 
     const subject = `Yvette & Jason Wedding RSVP — Party ${partyId}`;
 
+    const detailsBlockText =
+`Party ID: ${partyId}
+Number of Guests Coming: ${guestCount}
+Email: ${email}`;
+
+    const detailsBlockHtml = `
+      <p>
+        <strong>Party ID:</strong> ${partyId}<br>
+        <strong>Number of Guests Coming:</strong> ${guestCount}<br>
+        <strong>Email:</strong> ${email}
+      </p>
+    `;
+
     const updateBlockText =
 `Need to make an update? Changes can be made until March 7, 2026.
-
 You can update your RSVP directly on the official website:
 https://bigornia2ladao.com/rsvp`;
 
@@ -166,49 +182,24 @@ https://bigornia2ladao.com/rsvp`;
       </p>
     `;
 
-    const closingAcceptText =
-`Thank you for your RSVP — we hope you can make it and can’t wait to see you!
-
-Yvette & Jason`;
-
-    const closingDeclineText =
-`Thank you for your RSVP — we're so sorry you can't make it.
-If you change your mind, please let us know on or before March 7, 2026.
-
-Yvette & Jason`;
-
     const text =
-`Thank you! We received your response.
+`${openingText}
 
-Party ID: ${partyId}
-Number of Guests Coming: ${guestCount}
-RSVP: ${rsvpValue === "Y" ? "Joyfully Accepts" : "Regretfully Declines"}
-Email: ${email}
+${detailsBlockText}
 
-${rsvpValue === "Y" ? mealLinesText : ""}
+${isAccepting ? mealLinesText : ""}
 ${updateBlockText}
 
-${rsvpValue === "Y" ? closingAcceptText : closingDeclineText}`.trim();
+Yvette & Jason`.trim();
 
     const html = `
-      <p><strong>Thank you! We received your response.</strong></p>
+      <p><strong>${openingText}</strong></p>
 
-      <p>
-        <strong>Party ID:</strong> ${partyId}<br>
-        <strong>Number of Guests Coming:</strong> ${guestCount}<br>
-        <strong>RSVP:</strong> ${rsvpValue === "Y" ? "Joyfully Accepts" : "Regretfully Declines"}<br>
-        <strong>Email:</strong> ${email}
-      </p>
+      ${detailsBlockHtml}
 
-      ${rsvpValue === "Y" ? mealLinesHtml : ""}
+      ${isAccepting ? mealLinesHtml : ""}
 
       ${updateBlockHtml}
-
-      <p>
-        ${rsvpValue === "Y"
-          ? "Thank you for your RSVP — We’re so glad you’ll be joining us and can’t wait to see you!"
-          : "Thank you for your RSVP — We’re sorry you won’t be able to join us. If your plans change, please let us know by March 7, 2026."}
-      </p>
 
       <p><strong>Yvette & Jason</strong></p>
     `;
