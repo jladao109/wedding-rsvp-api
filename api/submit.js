@@ -150,9 +150,6 @@ function buildWeddingIcs({ partyId }) {
   ].join("\r\n");
 }
 
-/**
- * Send confirmation email via Resend
- */
 async function sendEmailIfConfigured({ to, bcc, subject, html, text, attachments }) {
   const key = process.env.RESEND_API_KEY;
   const from = process.env.RESEND_FROM;
@@ -178,10 +175,6 @@ async function sendEmailIfConfigured({ to, bcc, subject, html, text, attachments
   return { ok: true };
 }
 
-/* =========================
-   MAIN HANDLER
-========================= */
-
 export default async function handler(req, res) {
   setCors(req, res);
   if (req.method === "OPTIONS") return res.status(204).end();
@@ -202,7 +195,7 @@ export default async function handler(req, res) {
   }
 
   const partyId = norm(values.PARTY_ID || "Unknown");
-  const rsvpValue = norm(values.E); // Y / N
+  const rsvpValue = norm(values.E); // "Y" / "N"
   const guestCount = norm(values.F);
   const mealsRaw = norm(values.H);
 
@@ -214,6 +207,7 @@ export default async function handler(req, res) {
 
     const sheets = google.sheets({ version: "v4", auth });
 
+    // Write back to columns E–K
     const updates = [
       { range: `${TAB_NAME}!E${rowNumber}`, value: rsvpValue },
       { range: `${TAB_NAME}!F${rowNumber}`, value: guestCount },
@@ -235,43 +229,111 @@ export default async function handler(req, res) {
       },
     });
 
-    /* ---------- EMAIL CONTENT ---------- */
+    /* ---------- Build meal list for email (only if RSVP=Y) ---------- */
     const isAccepting = rsvpValue === "Y";
+    let mealLinesHtml = "";
+    let mealLinesText = "";
 
+    if (isAccepting && mealsRaw) {
+      mealsRaw.split(";").forEach(entry => {
+        const rawParts = entry.split(",").map(p => p.trim()); // keep empties
+
+        const last = rawParts[0] || "";
+        const first = rawParts[1] || "";
+
+        // 3 parts:  Last, First, Meal
+        // 4+ parts: Last, First, Suffix, Meal...
+        let suffix = "";
+        let meal = "";
+
+        if (rawParts.length >= 4) {
+          suffix = rawParts[2] || "";
+          meal = rawParts.slice(3).join(", ").trim();
+        } else if (rawParts.length === 3) {
+          suffix = "";
+          meal = rawParts[2] || "";
+        }
+
+        if (!last || !first || !meal) return;
+
+        const nameLine = `${first} ${last}${suffix ? " " + suffix : ""}`.trim();
+
+        // HTML: name on its own line, meal on next line
+        mealLinesHtml += `
+          <div style="margin: 12px 0;">
+            <div><strong>${nameLine}</strong></div>
+            <div><em>${meal}</em></div>
+          </div>
+        `;
+
+        // Text: name on one line, meal on next line, blank line after
+        mealLinesText += `${nameLine}\n${meal}\n\n`;
+      });
+    }
+
+    /* ---------- Email Copy ---------- */
     const openingText = isAccepting
       ? "Thank you for your RSVP — We’re so glad you’ll be joining us and can’t wait to see you!"
       : "Thank you for your RSVP — We’re sorry you won’t be able to join us.";
 
     const subject = `Yvette & Jason Wedding RSVP — Party ${partyId}`;
 
-    const html = `
-      <p><strong>${openingText}</strong></p>
+    const detailsHtml = `
       <p>
         <strong>Party ID:</strong> ${partyId}<br>
         <strong>Number of Guests Coming:</strong> ${guestCount}<br>
         <strong>Email:</strong> ${email}
       </p>
-      ${isAccepting ? `<p><strong>Add to Calendar</strong> <em>(attached)</em></p>` : ""}
+    `;
+
+    const detailsText =
+`Party ID: ${partyId}
+Number of Guests Coming: ${guestCount}
+Email: ${email}`;
+
+    const calendarNoteHtml = isAccepting
+      ? `<p><strong>Add to Calendar</strong> <em>(attached)</em></p>`
+      : "";
+
+    const calendarNoteText = isAccepting ? "Add to Calendar (attached)\n" : "";
+
+    const updateBlockHtml = `
       <p>
-        Need to make an update? Changes can be made until <strong>March 7, 2026</strong>.<br>
-        <a href="${EVENT_URL}">bigornia2ladao.com/rsvp</a>
+        <em>Need to make an update?</em> Changes can be made until
+        <strong>March 7, 2026</strong>.
+      </p>
+      <p>
+        You can update your RSVP directly on the official website:<br>
+        <a href="${EVENT_URL}">
+          bigornia2ladao.com/rsvp
+        </a>
       </p>
       <p><strong>Yvette & Jason</strong></p>
+    `;
+
+    const updateBlockText =
+`Need to make an update? Changes can be made until March 7, 2026.
+You can update your RSVP directly on the official website:
+${EVENT_URL}
+
+Yvette & Jason`;
+
+    const html = `
+      <p><strong>${openingText}</strong></p>
+      ${detailsHtml}
+      ${calendarNoteHtml}
+      ${isAccepting && mealLinesHtml ? `<hr style="border:none;border-top:1px solid #e5e5e5;margin:16px 0;">${mealLinesHtml}` : ""}
+      ${updateBlockHtml}
     `;
 
     const text =
 `${openingText}
 
-Party ID: ${partyId}
-Number of Guests Coming: ${guestCount}
-Email: ${email}
+${detailsText}
 
-${isAccepting ? "Add to Calendar (attached)\n" : ""}
-Need to make an update? Changes can be made until March 7, 2026.
-${EVENT_URL}
+${calendarNoteText}${isAccepting ? mealLinesText : ""}${updateBlockText}`.trim();
 
-Yvette & Jason`;
-
+    // Only attach .ics if RSVP is "Y"
     let attachments;
     if (isAccepting) {
       const ics = buildWeddingIcs({ partyId });
@@ -298,7 +360,7 @@ Yvette & Jason`;
       ok: true,
       email,
       partyId,
-      icsAttached: !!attachments,
+      icsAttached: !!attachments?.length,
       emailResult
     });
   } catch (err) {
