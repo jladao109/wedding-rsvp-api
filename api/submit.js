@@ -206,8 +206,8 @@ ${rsvpValue === "Y" ? closingAcceptText : closingDeclineText}`.trim();
 
       <p>
         ${rsvpValue === "Y"
-          ? "Thank you for your RSVP — we hope you can make it and can’t wait to see you!"
-          : "Thank you for your RSVP — we're so sorry you can't make it. If you change your mind, please let us know on or before March 7, 2026."}
+          ? "Thank you for your RSVP — We’re so glad you’ll be joining us and can’t wait to see you!"
+          : "Thank you for your RSVP — We’re sorry you won’t be able to join us. If your plans change, please let us know by March 7, 2026."}
       </p>
 
       <p><strong>Yvette & Jason</strong></p>
