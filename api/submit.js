@@ -22,7 +22,7 @@ function norm(s) {
 }
 
 /**
- * Send confirmation email via Resend (if configured)
+ * Send confirmation email via Resend
  */
 async function sendEmailIfConfigured({ to, bcc, subject, html, text }) {
   const key = process.env.RESEND_API_KEY;
@@ -75,7 +75,7 @@ export default async function handler(req, res) {
   const partyId = norm(values.PARTY_ID || "Unknown");
   const rsvpValue = norm(values.E); // Y or N
   const guestCount = norm(values.F);
-  const mealsRaw = norm(values.H); // "Last, First, Suffix, Meal; ..."
+  const mealsRaw = norm(values.H);
 
   try {
     const auth = new google.auth.GoogleAuth({
@@ -107,56 +107,88 @@ export default async function handler(req, res) {
       },
     });
 
-    // -------- Build meal list (only if RSVP = Y) --------
+    /* ---------- Build meal list (RSVP = Y only) ---------- */
     let mealLinesHtml = "";
     let mealLinesText = "";
 
     if (rsvpValue === "Y" && mealsRaw) {
       mealsRaw.split(";").forEach(entry => {
-      const rawParts = entry.split(",").map(p => p.trim()); // IMPORTANT: do NOT filter empties
+        const rawParts = entry.split(",").map(p => p.trim());
 
-      const last = rawParts[0] || "";
-      const first = rawParts[1] || "";
+        const last = rawParts[0] || "";
+        const first = rawParts[1] || "";
+        const suffix = rawParts[2] || "";
 
-      // Case A: "Last, First, Suffix, Meal..."
-      // Case B: "Last, First, , Meal..." (blank suffix still creates a 4th part)
-      // Case C: "Last, First, Meal..."  (no suffix)
-      let meal = "";
-      if (rawParts.length >= 4) {
-        meal = rawParts.slice(3).join(", ").trim();
-      } else if (rawParts.length >= 3) {
-        meal = rawParts.slice(2).join(", ").trim();
-      }
+        let meal = "";
+        if (rawParts.length >= 4) {
+          meal = rawParts.slice(3).join(", ").trim();
+        } else if (rawParts.length >= 3) {
+          meal = rawParts.slice(2).join(", ").trim();
+        }
 
-      if (!last || !first || !meal) return;
+        if (!last || !first || !meal) return;
 
-        mealLinesHtml += `<p><strong>${first} ${last}:</strong><br>Meal Preference: ${meal}</p>`;
-        mealLinesText += `${first} ${last}:\nMeal Preference: ${meal}\n\n`;
+        const nameLine = `${first} ${last}${suffix ? " " + suffix : ""}`;
+
+        mealLinesHtml += `
+          <p>
+            <strong>${nameLine}:</strong><br>
+            Meal Preference: ${meal}
+          </p>
+        `;
+
+        mealLinesText +=
+          `${nameLine}:\n` +
+          `Meal Preference: ${meal}\n\n`;
       });
     }
 
+    /* ---------- Email copy ---------- */
 
-    // -------- Email content --------
-    const subject = `Yvette & Jason Wedding Confirmation — Party ${partyId}`;
+    const subject = `Yvette & Jason Wedding RSVP — Party ${partyId}`;
 
-    const text = `
-Thank you! We received your response.
+    const updateBlockText =
+`Need to make an update? Changes can be made until March 7, 2026.
+
+You can update your RSVP directly on the official website:
+https://bigornia2ladao.com/rsvp`;
+
+    const updateBlockHtml = `
+      <p>
+        <em>Need to make an update?</em> Changes can be made until
+        <strong>March 7, 2026</strong>.
+      </p>
+      <p>
+        You can update your RSVP directly on the official website:<br>
+        <a href="https://bigornia2ladao.com/rsvp">
+          bigornia2ladao.com/rsvp
+        </a>
+      </p>
+    `;
+
+    const closingAcceptText =
+`Thank you for your RSVP — we hope you can make it and can’t wait to see you!
+
+Yvette & Jason`;
+
+    const closingDeclineText =
+`Thank you for your RSVP — we're so sorry you can't make it.
+If you change your mind, please let us know on or before March 7, 2026.
+
+Yvette & Jason`;
+
+    const text =
+`Thank you! We received your response.
 
 Party ID: ${partyId}
 Number of Guests Coming: ${guestCount}
 RSVP: ${rsvpValue === "Y" ? "Joyfully Accepts" : "Regretfully Declines"}
 Email: ${email}
 
-${mealLinesText}
-If you need to make any changes, you have until March 7, 2026 to do so.
+${rsvpValue === "Y" ? mealLinesText : ""}
+${updateBlockText}
 
-You can update your RSVP directly on the official website:
-https://bigornia2ladao.com/rsvp
-
-Thank you for your RSVP — we hope you can make it and can’t wait to see you!
-
-Yvette & Jason
-    `.trim();
+${rsvpValue === "Y" ? closingAcceptText : closingDeclineText}`.trim();
 
     const html = `
       <p><strong>Thank you! We received your response.</strong></p>
@@ -168,27 +200,17 @@ Yvette & Jason
         <strong>Email:</strong> ${email}
       </p>
 
-      ${mealLinesHtml}
+      ${rsvpValue === "Y" ? mealLinesHtml : ""}
+
+      ${updateBlockHtml}
 
       <p>
-        If you need to make any changes, you have until
-        <strong>March 7, 2026</strong> to do so.
+        ${rsvpValue === "Y"
+          ? "Thank you for your RSVP — we hope you can make it and can’t wait to see you!"
+          : "Thank you for your RSVP — we're so sorry you can't make it. If you change your mind, please let us know on or before March 7, 2026."}
       </p>
 
-      <p>
-        You can update your RSVP directly on the official website:<br>
-        <a href="https://bigornia2ladao.com/rsvp">
-          bigornia2ladao.com/rsvp
-        </a>
-      </p>
-
-      <p>
-        Thank you for your RSVP — we hope you can make it and can’t wait to see you!
-      </p>
-
-      <p>
-        <strong>Yvette & Jason</strong>
-      </p>
+      <p><strong>Yvette & Jason</strong></p>
     `;
 
     const bcc = [
