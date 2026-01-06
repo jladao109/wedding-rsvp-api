@@ -113,22 +113,28 @@ export default async function handler(req, res) {
 
     if (rsvpValue === "Y" && mealsRaw) {
       mealsRaw.split(";").forEach(entry => {
-        const rawParts = entry.split(",").map(p => p.trim());
+        const rawParts = entry.split(",").map(p => p.trim()); // do NOT filter empties
 
         const last = rawParts[0] || "";
         const first = rawParts[1] || "";
-        const suffix = rawParts[2] || "";
 
+        // ✅ Correct logic:
+        // 3 parts:  Last, First, Meal
+        // 4+ parts: Last, First, Suffix, Meal...
+        let suffix = "";
         let meal = "";
+
         if (rawParts.length >= 4) {
+          suffix = rawParts[2] || ""; // may be blank
           meal = rawParts.slice(3).join(", ").trim();
-        } else if (rawParts.length >= 3) {
-          meal = rawParts.slice(2).join(", ").trim();
+        } else if (rawParts.length === 3) {
+          suffix = ""; // third part is MEAL, not suffix
+          meal = rawParts[2] || "";
         }
 
         if (!last || !first || !meal) return;
 
-        const nameLine = `${first} ${last}${suffix ? " " + suffix : ""}`;
+        const nameLine = `${first} ${last}${suffix ? " " + suffix : ""}`.trim();
 
         mealLinesHtml += `
           <p style="margin-bottom:12px;">
@@ -142,7 +148,6 @@ export default async function handler(req, res) {
     }
 
     /* ---------- Email Copy ---------- */
-
     const isAccepting = rsvpValue === "Y";
 
     const openingText = isAccepting
