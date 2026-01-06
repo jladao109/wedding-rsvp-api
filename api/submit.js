@@ -229,11 +229,10 @@ export default async function handler(req, res) {
       },
     });
 
-    /* ---------- Build meal list for email (only if RSVP=Y) ---------- */
+    /* ---------- Meal list parsing (only if RSVP=Y) ---------- */
     const isAccepting = rsvpValue === "Y";
-    let mealLinesHtml = "";
-    let mealLinesText = "";
 
+    const mealRows = []; // [{ nameLine, meal }]
     if (isAccepting && mealsRaw) {
       mealsRaw.split(";").forEach(entry => {
         const rawParts = entry.split(",").map(p => p.trim()); // keep empties
@@ -257,18 +256,57 @@ export default async function handler(req, res) {
         if (!last || !first || !meal) return;
 
         const nameLine = `${first} ${last}${suffix ? " " + suffix : ""}`.trim();
-
-        // HTML: name on its own line, meal on next line
-        mealLinesHtml += `
-          <div style="margin: 12px 0;">
-            <div><strong>${nameLine}</strong></div>
-            <div><em>${meal}</em></div>
-          </div>
-        `;
-
-        // Text: name on one line, meal on next line, blank line after
-        mealLinesText += `${nameLine}\n${meal}\n\n`;
+        mealRows.push({ nameLine, meal });
       });
+    }
+
+    // Plain text meal block
+    let mealLinesText = "";
+    if (isAccepting && mealRows.length) {
+      mealLinesText =
+        mealRows.map(r => `${r.nameLine}\n${r.meal}`).join("\n\n") + "\n\n";
+    }
+
+    // Email-safe table meal block (HTML)
+    let mealTableHtml = "";
+    if (isAccepting && mealRows.length) {
+      const tableRowsHtml = mealRows.map((r) => {
+        return `
+          <tr>
+            <td style="padding:10px 12px; border-bottom:1px solid #e7e7e7; font-weight:600; font-family:Arial, sans-serif; font-size:14px; color:#111;">
+              ${r.nameLine}
+            </td>
+            <td style="padding:10px 12px; border-bottom:1px solid #e7e7e7; font-family:Arial, sans-serif; font-size:14px; color:#111;">
+              ${r.meal}
+            </td>
+          </tr>
+        `;
+      }).join("");
+
+      mealTableHtml = `
+        <div style="margin:16px 0;">
+          <div style="font-family:Arial, sans-serif; font-size:14px; font-weight:700; color:#111; margin-bottom:8px;">
+            Meal Selections
+          </div>
+
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+            style="border-collapse:collapse; width:100%; max-width:640px; border:1px solid #e7e7e7; border-radius:8px; overflow:hidden;">
+            <thead>
+              <tr>
+                <th align="left" style="padding:10px 12px; background:#f6f6f6; border-bottom:1px solid #e7e7e7; font-family:Arial, sans-serif; font-size:13px; color:#444;">
+                  Guest
+                </th>
+                <th align="left" style="padding:10px 12px; background:#f6f6f6; border-bottom:1px solid #e7e7e7; font-family:Arial, sans-serif; font-size:13px; color:#444;">
+                  Meal
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRowsHtml}
+            </tbody>
+          </table>
+        </div>
+      `;
     }
 
     /* ---------- Email Copy ---------- */
@@ -279,11 +317,17 @@ export default async function handler(req, res) {
     const subject = `Yvette & Jason Wedding RSVP — Party ${partyId}`;
 
     const detailsHtml = `
-      <p>
-        <strong>Party ID:</strong> ${partyId}<br>
-        <strong>Number of Guests Coming:</strong> ${guestCount}<br>
-        <strong>Email:</strong> ${email}
-      </p>
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse; max-width:640px;">
+        <tr>
+          <td style="padding:0 0 6px 0; font-family:Arial, sans-serif; font-size:14px; color:#111;"><strong>Party ID:</strong> ${partyId}</td>
+        </tr>
+        <tr>
+          <td style="padding:0 0 6px 0; font-family:Arial, sans-serif; font-size:14px; color:#111;"><strong>Number of Guests Coming:</strong> ${guestCount}</td>
+        </tr>
+        <tr>
+          <td style="padding:0 0 6px 0; font-family:Arial, sans-serif; font-size:14px; color:#111;"><strong>Email:</strong> ${email}</td>
+        </tr>
+      </table>
     `;
 
     const detailsText =
@@ -292,23 +336,22 @@ Number of Guests Coming: ${guestCount}
 Email: ${email}`;
 
     const calendarNoteHtml = isAccepting
-      ? `<p><strong>Add to Calendar</strong> <em>(attached)</em></p>`
+      ? `<div style="margin:12px 0; font-family:Arial, sans-serif; font-size:14px; color:#111;"><strong>Add to Calendar</strong> <span style="color:#666;">(attached)</span></div>`
       : "";
 
     const calendarNoteText = isAccepting ? "Add to Calendar (attached)\n" : "";
 
     const updateBlockHtml = `
-      <p>
-        <em>Need to make an update?</em> Changes can be made until
-        <strong>March 7, 2026</strong>.
-      </p>
-      <p>
-        You can update your RSVP directly on the official website:<br>
-        <a href="${EVENT_URL}">
-          bigornia2ladao.com/rsvp
-        </a>
-      </p>
-      <p><strong>Yvette & Jason</strong></p>
+      <div style="margin-top:16px; font-family:Arial, sans-serif; font-size:14px; color:#111;">
+        <div style="margin-bottom:10px;">
+          <em>Need to make an update?</em> Changes can be made until <strong>March 7, 2026</strong>.
+        </div>
+        <div style="margin-bottom:14px;">
+          You can update your RSVP directly on the official website:<br>
+          <a href="${EVENT_URL}" style="color:#0b57d0; text-decoration:underline;">bigornia2ladao.com/rsvp</a>
+        </div>
+        <div style="font-weight:700;">Yvette & Jason</div>
+      </div>
     `;
 
     const updateBlockText =
@@ -319,11 +362,17 @@ ${EVENT_URL}
 Yvette & Jason`;
 
     const html = `
-      <p><strong>${openingText}</strong></p>
-      ${detailsHtml}
-      ${calendarNoteHtml}
-      ${isAccepting && mealLinesHtml ? `<hr style="border:none;border-top:1px solid #e5e5e5;margin:16px 0;">${mealLinesHtml}` : ""}
-      ${updateBlockHtml}
+      <div style="font-family:Arial, sans-serif; color:#111; font-size:14px; line-height:1.45;">
+        <div style="font-size:16px; font-weight:700; margin-bottom:12px;">${openingText}</div>
+
+        ${detailsHtml}
+
+        ${calendarNoteHtml}
+
+        ${mealTableHtml}
+
+        ${updateBlockHtml}
+      </div>
     `;
 
     const text =
