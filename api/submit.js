@@ -2,14 +2,11 @@ import { google } from "googleapis";
 
 const TAB_NAME = "Guests";
 
-// Cutoff: March 7, 2026 11:59 PM PST = March 8, 2026 07:59 UTC
-const CUTOFF_UTC = Date.parse("2026-03-08T07:59:00Z");
-
-// Event details
+// Event details (same as your current)
 const EVENT_TZID = "America/New_York";
-const EVENT_DATE = "20260522"; // YYYYMMDD
-const EVENT_START_LOCAL = `${EVENT_DATE}T180000`; // 6:00 PM EDT
-const EVENT_END_LOCAL = `${EVENT_DATE}T230000`;   // 11:00 PM EDT
+const EVENT_DATE = "20260522";
+const EVENT_START_LOCAL = `${EVENT_DATE}T180000`;
+const EVENT_END_LOCAL = `${EVENT_DATE}T230000`;
 
 const EVENT_TITLE = "Yvette & Jason Wedding";
 const EVENT_ORGANIZER_EMAIL = "rsvp@bigornia2ladao.com";
@@ -26,6 +23,7 @@ const EVENT_MAPS_URL =
   "https://www.google.com/maps/search/?api=1&query=" +
   encodeURIComponent("The Clubhouse at Galloping Hill, 3 Golf Drive, Kenilworth, NJ 07033");
 
+/** ---------- shared helpers ---------- **/
 function setCors(req, res) {
   const origin = req.headers.origin;
   const allowed = new Set([
@@ -79,6 +77,79 @@ function buildVTimeZoneAmericaNewYork() {
   ].join("\r\n");
 }
 
+// "March 7, 2026" -> {y,m,d} (month 1-12)
+function parseMonthDayYear(dateStr) {
+  const s = norm(dateStr);
+  if (!s) return null;
+
+  const parsed = Date.parse(s);
+  if (!Number.isNaN(parsed)) {
+    const dt = new Date(parsed);
+    return { y: dt.getUTCFullYear(), m: dt.getUTCMonth() + 1, d: dt.getUTCDate() };
+  }
+
+  const m = s.match(/^([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})$/);
+  if (!m) return null;
+  const monthName = m[1].toLowerCase();
+  const day = Number(m[2]);
+  const year = Number(m[3]);
+  const monthMap = {
+    january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
+    july: 7, august: 8, september: 9, october: 10, november: 11, december: 12,
+  };
+  const month = monthMap[monthName];
+  if (!month || !day || !year) return null;
+  return { y: year, m: month, d: day };
+}
+
+// Convert local time in a named TZ to UTC ms (no extra libs)
+function zonedTimeToUtcMs({ y, m, d, hh, mm, ss }, timeZone) {
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+
+  const partsToObj = (date) =>
+    Object.fromEntries(
+      dtf
+        .formatToParts(date)
+        .filter((p) => p.type !== "literal")
+        .map((p) => [p.type, p.value])
+    );
+
+  const utcGuess = Date.UTC(y, m - 1, d, hh, mm, ss);
+  const guessDate = new Date(utcGuess);
+
+  const p = partsToObj(guessDate);
+  const asIfUtc = Date.UTC(
+    Number(p.year),
+    Number(p.month) - 1,
+    Number(p.day),
+    Number(p.hour),
+    Number(p.minute),
+    Number(p.second)
+  );
+
+  const offsetMs = asIfUtc - utcGuess;
+  return utcGuess - offsetMs;
+}
+
+// Column L date => cutoff moment is 11:59 PM America/Los_Angeles on that date
+function cutoffUtcMsFromSheetValue(cutoffDateStr) {
+  const parts = parseMonthDayYear(cutoffDateStr);
+  if (!parts) return null;
+  return zonedTimeToUtcMs(
+    { ...parts, hh: 23, mm: 59, ss: 0 },
+    "America/Los_Angeles"
+  );
+}
+
 function buildWeddingIcs({ partyId }) {
   const uid = `yvette-jason-wedding-${escapeIcsText(partyId || "unknown")}-${Date.now()}@bigornia2ladao.com`;
 
@@ -95,28 +166,21 @@ function buildWeddingIcs({ partyId }) {
   const location = EVENT_LOCATION_LINES.join("\n");
 
   const alarms = [
-    // 1 day before — popup
     "BEGIN:VALARM",
     "ACTION:DISPLAY",
     "DESCRIPTION:Wedding reminder (tomorrow)",
     "TRIGGER:-P1D",
     "END:VALARM",
-
-    // 1 day before — audio (client-dependent)
     "BEGIN:VALARM",
     "ACTION:AUDIO",
     "TRIGGER:-P1D",
     "ATTACH;VALUE=URI:Basso",
     "END:VALARM",
-
-    // 2 hours before — popup
     "BEGIN:VALARM",
     "ACTION:DISPLAY",
     "DESCRIPTION:Wedding reminder (in 2 hours)",
     "TRIGGER:-PT2H",
     "END:VALARM",
-
-    // 2 hours before — audio
     "BEGIN:VALARM",
     "ACTION:AUDIO",
     "TRIGGER:-PT2H",
@@ -171,20 +235,21 @@ async function sendEmailIfConfigured({ to, bcc, subject, html, text, attachments
     const body = await resp.text();
     return { ok: false, details: body };
   }
-
   return { ok: true };
 }
 
+/** ---------- handler ---------- **/
 export default async function handler(req, res) {
   setCors(req, res);
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST" });
 
-  if (Date.now() > CUTOFF_UTC) {
-    return res.status(403).json({ error: "Cutoff passed" });
-  }
+  if (!process.env.SPREADSHEET_ID) return res.status(500).json({ error: "Missing SPREADSHEET_ID env var" });
+  if (!process.env.GOOGLE_CREDENTIALS) return res.status(500).json({ error: "Missing GOOGLE_CREDENTIALS env var" });
 
-  const { rowNumber, values } = req.body || {};
+  const rowNumber = Number(req.body?.rowNumber);
+  const values = req.body?.values;
+
   if (!rowNumber || !values) {
     return res.status(400).json({ error: "Missing rowNumber or values." });
   }
@@ -195,7 +260,7 @@ export default async function handler(req, res) {
   }
 
   const partyId = norm(values.PARTY_ID || "Unknown");
-  const rsvpValue = norm(values.E); // "Y" / "N"
+  const rsvpValue = norm(values.E); // Y/N
   const guestCount = norm(values.F);
   const mealsRaw = norm(values.H);
 
@@ -204,15 +269,30 @@ export default async function handler(req, res) {
       credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS),
       scopes: ["https://www.googleapis.com/auth/spreadsheets"],
     });
-
     const sheets = google.sheets({ version: "v4", auth });
 
-    // Write back to columns E–K
+    // ✅ Read cutoff date from Column L for THIS row before accepting submit
+    const cutoffRead = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.SPREADSHEET_ID,
+      range: `${TAB_NAME}!L${rowNumber}`,
+    });
+
+    const cutoffDateStr = norm(cutoffRead.data.values?.[0]?.[0] ?? "");
+    const cutoffUtcMs = cutoffUtcMsFromSheetValue(cutoffDateStr);
+
+    if (cutoffUtcMs && Date.now() > cutoffUtcMs) {
+      return res.status(403).json({
+        error: "Cutoff passed",
+        cutoffDate: cutoffDateStr || null,
+      });
+    }
+
+    // Write E–K
     const updates = [
-      { range: `${TAB_NAME}!E${rowNumber}`, value: rsvpValue },
-      { range: `${TAB_NAME}!F${rowNumber}`, value: guestCount },
+      { range: `${TAB_NAME}!E${rowNumber}`, value: norm(values.E) },
+      { range: `${TAB_NAME}!F${rowNumber}`, value: norm(values.F) },
       { range: `${TAB_NAME}!G${rowNumber}`, value: norm(values.G) },
-      { range: `${TAB_NAME}!H${rowNumber}`, value: mealsRaw },
+      { range: `${TAB_NAME}!H${rowNumber}`, value: norm(values.H) },
       { range: `${TAB_NAME}!I${rowNumber}`, value: norm(values.I) },
       { range: `${TAB_NAME}!J${rowNumber}`, value: email },
       { range: `${TAB_NAME}!K${rowNumber}`, value: norm(values.K) },
@@ -222,26 +302,19 @@ export default async function handler(req, res) {
       spreadsheetId: process.env.SPREADSHEET_ID,
       requestBody: {
         valueInputOption: "USER_ENTERED",
-        data: updates.map(u => ({
-          range: u.range,
-          values: [[u.value]],
-        })),
+        data: updates.map(u => ({ range: u.range, values: [[u.value]] })),
       },
     });
 
-    /* ---------- Meal list parsing (only if RSVP=Y) ---------- */
+    // Meal table rows (email-safe)
     const isAccepting = rsvpValue === "Y";
-
-    const mealRows = []; // [{ nameLine, meal }]
+    const mealRows = [];
     if (isAccepting && mealsRaw) {
       mealsRaw.split(";").forEach(entry => {
-        const rawParts = entry.split(",").map(p => p.trim()); // keep empties
-
+        const rawParts = entry.split(",").map(p => p.trim());
         const last = rawParts[0] || "";
         const first = rawParts[1] || "";
 
-        // 3 parts:  Last, First, Meal
-        // 4+ parts: Last, First, Suffix, Meal...
         let suffix = "";
         let meal = "";
 
@@ -254,41 +327,17 @@ export default async function handler(req, res) {
         }
 
         if (!last || !first || !meal) return;
-
         const nameLine = `${first} ${last}${suffix ? " " + suffix : ""}`.trim();
         mealRows.push({ nameLine, meal });
       });
     }
 
-    // Plain text meal block
-    let mealLinesText = "";
-    if (isAccepting && mealRows.length) {
-      mealLinesText =
-        mealRows.map(r => `${r.nameLine}\n${r.meal}`).join("\n\n") + "\n\n";
-    }
-
-    // Email-safe table meal block (HTML)
-    let mealTableHtml = "";
-    if (isAccepting && mealRows.length) {
-      const tableRowsHtml = mealRows.map((r) => {
-        return `
-          <tr>
-            <td style="padding:10px 12px; border-bottom:1px solid #e7e7e7; font-weight:600; font-family:Arial, sans-serif; font-size:14px; color:#111;">
-              ${r.nameLine}
-            </td>
-            <td style="padding:10px 12px; border-bottom:1px solid #e7e7e7; font-family:Arial, sans-serif; font-size:14px; color:#111;">
-              ${r.meal}
-            </td>
-          </tr>
-        `;
-      }).join("");
-
-      mealTableHtml = `
+    const mealTableHtml = (isAccepting && mealRows.length)
+      ? `
         <div style="margin:16px 0;">
           <div style="font-family:Arial, sans-serif; font-size:14px; font-weight:700; color:#111; margin-bottom:8px;">
             Meal Selections
           </div>
-
           <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
             style="border-collapse:collapse; width:100%; max-width:640px; border:1px solid #e7e7e7; border-radius:8px; overflow:hidden;">
             <thead>
@@ -302,121 +351,117 @@ export default async function handler(req, res) {
               </tr>
             </thead>
             <tbody>
-              ${tableRowsHtml}
+              ${mealRows.map(r => `
+                <tr>
+                  <td style="padding:10px 12px; border-bottom:1px solid #e7e7e7; font-weight:600; font-family:Arial, sans-serif; font-size:14px; color:#111;">
+                    ${r.nameLine}
+                  </td>
+                  <td style="padding:10px 12px; border-bottom:1px solid #e7e7e7; font-family:Arial, sans-serif; font-size:14px; color:#111;">
+                    ${r.meal}
+                  </td>
+                </tr>
+              `).join("")}
             </tbody>
           </table>
         </div>
-      `;
-    }
+      `
+      : "";
 
-    /* ---------- Email Copy ---------- */
+    const mealText = (isAccepting && mealRows.length)
+      ? mealRows.map(r => `${r.nameLine}\n${r.meal}`).join("\n\n") + "\n\n"
+      : "";
+
+    // ✅ Dynamic cutoff string used in email
+    const cutoffDisplay = cutoffDateStr || "your RSVP cutoff date";
+
     const openingText = isAccepting
       ? "Thank you for your RSVP — We’re so glad you’ll be joining us and can’t wait to see you!"
       : "Thank you for your RSVP — We’re sorry you won’t be able to join us.";
 
     const subject = `Yvette & Jason Wedding RSVP — Party ${partyId}`;
 
-    const detailsHtml = `
-      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse; max-width:640px;">
-        <tr>
-          <td style="padding:0 0 6px 0; font-family:Arial, sans-serif; font-size:14px; color:#111;"><strong>Party ID:</strong> ${partyId}</td>
-        </tr>
-        <tr>
-          <td style="padding:0 0 6px 0; font-family:Arial, sans-serif; font-size:14px; color:#111;"><strong>Number of Guests Coming:</strong> ${guestCount}</td>
-        </tr>
-        <tr>
-          <td style="padding:0 0 6px 0; font-family:Arial, sans-serif; font-size:14px; color:#111;"><strong>Email:</strong> ${email}</td>
-        </tr>
-      </table>
-    `;
-
-    const detailsText =
-`Party ID: ${partyId}
-Number of Guests Coming: ${guestCount}
-Email: ${email}`;
-
     const calendarNoteHtml = isAccepting
       ? `<div style="margin:12px 0; font-family:Arial, sans-serif; font-size:14px; color:#111;"><strong>Add to Calendar</strong> <span style="color:#666;">(attached)</span></div>`
       : "";
-
-    const calendarNoteText = isAccepting ? "Add to Calendar (attached)\n" : "";
-
-    const updateBlockHtml = `
-      <div style="margin-top:16px; font-family:Arial, sans-serif; font-size:14px; color:#111;">
-        <div style="margin-bottom:10px;">
-          <em>Need to make an update?</em> Changes can be made until <strong>March 7, 2026</strong>.
-        </div>
-        <div style="margin-bottom:14px;">
-          You can update your RSVP directly on the official website:<br>
-          <a href="${EVENT_URL}" style="color:#0b57d0; text-decoration:underline;">bigornia2ladao.com/rsvp</a>
-        </div>
-        <div style="font-weight:700;">Yvette & Jason</div>
-      </div>
-    `;
-
-    const updateBlockText =
-`Need to make an update? Changes can be made until March 7, 2026.
-You can update your RSVP directly on the official website:
-${EVENT_URL}
-
-Yvette & Jason`;
+    const calendarNoteText = isAccepting ? "Add to Calendar (attached)\n\n" : "";
 
     const html = `
       <div style="font-family:Arial, sans-serif; color:#111; font-size:14px; line-height:1.45;">
         <div style="font-size:16px; font-weight:700; margin-bottom:12px;">${openingText}</div>
 
-        ${detailsHtml}
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse; max-width:640px;">
+          <tr><td style="padding:0 0 6px 0;"><strong>Party ID:</strong> ${partyId}</td></tr>
+          <tr><td style="padding:0 0 6px 0;"><strong>Number of Guests Coming:</strong> ${guestCount}</td></tr>
+          <tr><td style="padding:0 0 6px 0;"><strong>Email:</strong> ${email}</td></tr>
+        </table>
 
         ${calendarNoteHtml}
-
         ${mealTableHtml}
 
-        ${updateBlockHtml}
+        <div style="margin-top:16px;">
+          <div style="margin-bottom:10px;">
+            <em>Need to make an update?</em> Changes can be made until <strong>${cutoffDisplay}</strong>.
+          </div>
+          <div style="margin-bottom:14px;">
+            You can update your RSVP directly on the official website:<br>
+            <a href="${EVENT_URL}" style="color:#0b57d0; text-decoration:underline;">bigornia2ladao.com/rsvp</a>
+          </div>
+          <div style="font-weight:700;">Yvette & Jason</div>
+        </div>
       </div>
     `;
 
-    const text =
-`${openingText}
+    const text = `
+${openingText}
 
-${detailsText}
+Party ID: ${partyId}
+Number of Guests Coming: ${guestCount}
+Email: ${email}
 
-${calendarNoteText}${isAccepting ? mealLinesText : ""}${updateBlockText}`.trim();
+${calendarNoteText}${mealText}Need to make an update? Changes can be made until ${cutoffDisplay}.
+${EVENT_URL}
 
-    // Only attach .ics if RSVP is "Y"
+Yvette & Jason
+    `.trim();
+
+    // Attach ICS only if accepting
     let attachments;
     if (isAccepting) {
       const ics = buildWeddingIcs({ partyId });
       attachments = [{
         filename: "Yvette-and-Jason-Wedding.ics",
-        content: Buffer.from(ics, "utf8").toString("base64")
+        content: Buffer.from(ics, "utf8").toString("base64"),
       }];
     }
 
+    const bcc = [
+      "rsvp@bigornia2ladao.com",
+      "yvbigornia@gmail.com",
+      "jason.ladao@gmail.com",
+    ];
+
     const emailResult = await sendEmailIfConfigured({
       to: email,
-      bcc: [
-        "rsvp@bigornia2ladao.com",
-        "yvbigornia@gmail.com",
-        "jason.ladao@gmail.com"
-      ],
+      bcc,
       subject,
       html,
       text,
-      attachments
+      attachments,
     });
 
     return res.json({
       ok: true,
       email,
       partyId,
+      cutoffDate: cutoffDateStr || null,
       icsAttached: !!attachments?.length,
-      emailResult
+      emailResult,
     });
   } catch (err) {
     console.error("SUBMIT ERROR:", err);
     return res.status(500).json({
       error: "Server error",
-      details: err?.message || String(err)
+      details: err?.message || String(err),
     });
   }
 }
