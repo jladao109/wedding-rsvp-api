@@ -3,8 +3,51 @@ import {
   requireAdminKey,
   readGuestRows,
   getEmailRecipients,
+  appendCommLog,
   buildTextFromHtml,
+  isValidEmail,
 } from "./_comm-helpers.js";
+
+async function sendOneEmail({ to, subject, html, text }) {
+  const key = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM_INFO || "info@bigornia2ladao.com";
+
+  if (!key) {
+    throw new Error("Missing RESEND_API_KEY env var");
+  }
+
+  const resp = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from,
+      to,
+      subject,
+      html,
+      text,
+    }),
+  });
+
+  if (!resp.ok) {
+    const body = await resp.text();
+    throw new Error(body || "Resend send failed");
+  }
+
+  return resp.json().catch(() => ({}));
+}
+
+async function sendInChunks(items, chunkSize, fn) {
+  const results = [];
+  for (let i = 0; i < items.length; i += chunkSize) {
+    const chunk = items.slice(i, i + chunkSize);
+    const settled = await Promise.allSettled(chunk.map(fn));
+    results.push(...settled);
+  }
+  return results;
+}
 
 export default async function handler(req, res) {
   setCors(req, res);
@@ -16,6 +59,8 @@ export default async function handler(req, res) {
   const audience = req.body?.audience || "all";
   const subject = String(req.body?.subject || "").trim();
   const html = String(req.body?.html || "").trim();
+  const testMode = !!req.body?.testMode;
+  const testEmail = String(req.body?.testEmail || "").trim();
 
   if (!subject) {
     return res.status(400).json({ error: "Subject is required." });
@@ -25,19 +70,93 @@ export default async function handler(req, res) {
   }
 
   try {
+    const text = buildTextFromHtml(html);
+
+    // ===== TEST MODE =====
+    if (testMode) {
+      if (!testEmail) {
+        return res.status(400).json({ error: "Test email is required for test mode." });
+      }
+
+      if (!isValidEmail(testEmail)) {
+        return res.status(400).json({ error: "Please provide a valid test email." });
+      }
+
+      const sendResult = await sendOneEmail({
+        to: testEmail,
+        subject: `[TEST] ${subject}`,
+        html,
+        text,
+      });
+
+      await appendCommLog({
+        channel: "EMAIL",
+        audience: "test",
+        subject,
+        count: 1,
+        status: "TEST SENT",
+        notes: testEmail,
+      });
+
+      return res.json({
+        ok: true,
+        mode: "test",
+        sent: 1,
+        email: testEmail,
+        resendResult: sendResult,
+      });
+    }
+
+    // ===== FINAL SEND =====
     const rows = await readGuestRows();
     const recipients = getEmailRecipients(rows, audience);
-    const text = buildTextFromHtml(html);
+
+    if (!recipients.length) {
+      return res.status(400).json({ error: "No eligible recipients found." });
+    }
+
+    const settled = await sendInChunks(
+      recipients,
+      10,
+      (recipient) => sendOneEmail({
+        to: recipient.email,
+        subject,
+        html,
+        text,
+      })
+    );
+
+    const sent = settled.filter(r => r.status === "fulfilled").length;
+    const failed = settled.length - sent;
+
+    await appendCommLog({
+      channel: "EMAIL",
+      audience,
+      subject,
+      count: sent,
+      status: failed ? "PARTIAL" : "SENT",
+      notes: failed ? `${failed} failed` : "",
+    });
 
     return res.json({
       ok: true,
       audience,
       count: recipients.length,
-      subject,
-      textPreview: text.slice(0, 500),
+      sent,
+      failed,
     });
   } catch (err) {
-    console.error("COMM PREVIEW ERROR:", err);
+    console.error("COMM SEND EMAIL ERROR:", err);
+
+    await appendCommLog({
+      channel: "EMAIL",
+      audience: req.body?.audience || "all",
+      subject: String(req.body?.subject || "").trim(),
+      count: 0,
+      status: "FAILED",
+      notes: err?.message || String(err),
+    });
+
     return res.status(500).json({
       error: "Server error",
       details: err?.message || String(err),
