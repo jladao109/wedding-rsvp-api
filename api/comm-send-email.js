@@ -28,6 +28,10 @@ async function sendOneEmail({ to, subject, html, text }) {
       subject,
       html,
       text,
+      bcc: [
+        "jason.ladao@gmail.com",
+        "yvbornia@gmail.com"
+      ],
     }),
   });
 
