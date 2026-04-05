@@ -43,13 +43,24 @@ async function sendOneEmail({ to, subject, html, text }) {
   return resp.json().catch(() => ({}));
 }
 
+async function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function sendInChunks(items, chunkSize, fn) {
   const results = [];
+
   for (let i = 0; i < items.length; i += chunkSize) {
     const chunk = items.slice(i, i + chunkSize);
     const settled = await Promise.allSettled(chunk.map(fn));
     results.push(...settled);
+
+    // small pause between chunks to avoid rate limiting
+    if (i + chunkSize < items.length) {
+      await sleep(1200);
+    }
   }
+
   return results;
 }
 
@@ -121,7 +132,7 @@ export default async function handler(req, res) {
 
     const settled = await sendInChunks(
       recipients,
-      10,
+      5,
       (recipient) => sendOneEmail({
         to: recipient.email,
         subject,
@@ -130,16 +141,23 @@ export default async function handler(req, res) {
       })
     );
 
-    const sent = settled.filter(r => r.status === "fulfilled").length;
-    const failed = settled.length - sent;
+    const results = settled.map((r, i) => ({
+      email: recipients[i].email,
+      partyId: recipients[i].partyId,
+      status: r.status,
+      error: r.status === "rejected" ? (r.reason?.message || String(r.reason)) : null,
+    }));
+
+    const sent = results.filter(r => r.status === "fulfilled").length;
+    const failed = results.filter(r => r.status === "rejected");
 
     await appendCommLog({
       channel: "EMAIL",
       audience,
       subject,
       count: sent,
-      status: failed ? "PARTIAL" : "SENT",
-      notes: failed ? `${failed} failed` : "",
+      status: failed.length ? "PARTIAL" : "SENT",
+      notes: failed.length ? `${failed.length} failed` : "",
     });
 
     return res.json({
@@ -147,7 +165,8 @@ export default async function handler(req, res) {
       audience,
       count: recipients.length,
       sent,
-      failed,
+      failed: failed.length,
+      failures: failed,
     });
   } catch (err) {
     console.error("COMM SEND EMAIL ERROR:", err);
