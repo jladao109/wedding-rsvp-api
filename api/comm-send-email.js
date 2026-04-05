@@ -30,7 +30,7 @@ async function sendOneEmail({ to, subject, html, text }) {
       text,
       bcc: [
         "jason.ladao@gmail.com",
-        "yvbornia@gmail.com"
+        "yvbigornia@gmail.com"
       ],
     }),
   });
