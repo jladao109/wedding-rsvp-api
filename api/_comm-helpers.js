@@ -197,7 +197,7 @@ export function buildStarterEmailHtml() {
             <tr>
               <td>
                 <img
-                  src="https://bigornia2ladao.com/path-to-top-image.jpg"
+                  src="https://bigornia2ladao.com/images/emailComms-top.png"
                   alt=""
                   width="600"
                   style="display:block;width:100%;height:auto;border:0;"
@@ -207,8 +207,11 @@ export function buildStarterEmailHtml() {
 
             <tr>
               <td style="padding:36px 28px;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.6;color:#111111;text-align:center;">
-                <p style="margin:0 0 18px;"><strong>Your headline goes here</strong></p>
-                <p style="margin:0 0 18px;">Your body copy goes here. Keep this simple, readable, and mobile-friendly.</p>
+                <!-- TYPE YOUR HEADLINE IN THE LINE BELOW -->  
+                    <p style="margin:0 0 18px;"><strong>Your headline goes here</strong></p>
+                <!-- REPLACE BELOW LINE WITH YOUR HTML EMAIL CONTENT -->
+                    <p style="margin:0 0 18px;">Your body copy goes here.</p>
+                <!-- END HTML EMAIL CONTENT-->    
                 <p style="margin:0;">
                   <a href="https://bigornia2ladao.com" style="color:#111111;">Visit our wedding website</a>
                 </p>
@@ -218,15 +221,19 @@ export function buildStarterEmailHtml() {
             <tr>
               <td>
                 <img
-                  src="https://bigornia2ladao.com/path-to-bottom-image.jpg"
+                  src="https://bigornia2ladao.com/images/emailComms-bottom.png"
                   alt=""
                   width="600"
                   style="display:block;width:100%;height:auto;border:0;"
                 >
               </td>
             </tr>
-
           </table>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:0px 30px 20px;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#000000;text-align:center;">
+      <p>If this message landed in your Junk folder, please mark it as “Not Junk” so you don’t miss important wedding updates.</p>
         </td>
       </tr>
     </table>
