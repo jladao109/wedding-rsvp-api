@@ -70,9 +70,10 @@ export async function getSheetsClient() {
 export async function readGuestRows() {
   const sheets = await getSheetsClient();
 
+  // ✅ now reads through column N
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.SPREADSHEET_ID,
-    range: `${TAB_NAME}!A2:M`,
+    range: `${TAB_NAME}!A2:N`,
   });
 
   const rows = response.data.values || [];
@@ -82,19 +83,20 @@ export async function readGuestRows() {
 
     return {
       rowNumber,
-      partyId: norm(row[0]),          // A
-      names: norm(row[1]),            // B
-      zips: norm(row[2]),             // C
-      seatsReserved: norm(row[3]),    // D
-      rsvp: norm(row[4]).toUpperCase(), // E
-      countComing: norm(row[5]),      // F
-      comingNames: norm(row[6]),      // G
-      meals: norm(row[7]),            // H
-      ages: norm(row[8]),             // I
-      email: norm(row[9]),            // J
-      phone: norm(row[10]),           // K
-      cutoffDate: norm(row[11]),      // L
-      entourage: norm(row[12]).toUpperCase(), // M
+      partyId: norm(row[0]),             // A
+      names: norm(row[1]),               // B
+      zips: norm(row[2]),                // C
+      seatsReserved: norm(row[3]),       // D
+      rsvp: norm(row[4]).toUpperCase(),  // E
+      countComing: norm(row[5]),         // F
+      comingNames: norm(row[6]),         // G
+      meals: norm(row[7]),               // H
+      ages: norm(row[8]),                // I
+      email: norm(row[9]),               // J
+      phone: norm(row[10]),              // K
+      cutoffDate: norm(row[11]),         // L
+      entourage: norm(row[12]).toUpperCase(),         // M
+      rehearsalDinner: norm(row[13]).toUpperCase(),   // N
     };
   });
 }
@@ -108,6 +110,11 @@ export function filterAudience(rows, audience) {
 
   if (a === "guests") {
     return rows.filter(r => r.entourage !== "Y");
+  }
+
+  // ✅ new filter
+  if (a === "rehearsal") {
+    return rows.filter(r => r.rehearsalDinner === "Y");
   }
 
   return rows;
@@ -131,6 +138,7 @@ export function getEmailRecipients(rows, audience) {
       partyId: row.partyId,
       email: row.email,
       entourage: row.entourage === "Y",
+      rehearsalDinner: row.rehearsalDinner === "Y",
       countComing: row.countComing,
       cutoffDate: row.cutoffDate,
     });
@@ -208,7 +216,7 @@ export function buildStarterEmailHtml() {
             <tr>
               <td style="padding:36px 28px;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.6;color:#111111;text-align:center;">
                 <!-- TYPE YOUR HEADLINE IN THE LINE BELOW -->  
-                    <p style="margin:0 0 18px;"><strong>Your headline goes here</strong></p>
+                    <p style="margin:0 0 18px;font-size:18px;"><strong>Your headline goes here</strong></p>
                 <!-- REPLACE BELOW LINE WITH YOUR HTML EMAIL CONTENT -->
                     <p style="margin:0 0 18px;">Your body copy goes here.</p>
                 <!-- END HTML EMAIL CONTENT-->    
