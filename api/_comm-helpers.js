@@ -70,7 +70,6 @@ export async function getSheetsClient() {
 export async function readGuestRows() {
   const sheets = await getSheetsClient();
 
-  // ✅ now reads through column N
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.SPREADSHEET_ID,
     range: `${TAB_NAME}!A2:N`,
@@ -95,8 +94,8 @@ export async function readGuestRows() {
       email: norm(row[9]),               // J
       phone: norm(row[10]),              // K
       cutoffDate: norm(row[11]),         // L
-      entourage: norm(row[12]).toUpperCase(),         // M
-      rehearsalDinner: norm(row[13]).toUpperCase(),   // N
+      entourageGroup: norm(row[12]),     // M (dropdown values)
+      rehearsalDinner: norm(row[13]).toUpperCase(), // N
     };
   });
 }
@@ -104,19 +103,37 @@ export async function readGuestRows() {
 export function filterAudience(rows, audience) {
   const a = normLower(audience);
 
-  if (a === "entourage") {
-    return rows.filter(r => r.entourage === "Y");
-  }
-
+  // M is blank
   if (a === "guests") {
-    return rows.filter(r => r.entourage !== "Y");
+    return rows.filter(r => !norm(r.entourageGroup));
   }
 
-  // ✅ new filter
+  // M has any dropdown value
+  if (a === "entourage") {
+    return rows.filter(r => !!norm(r.entourageGroup));
+  }
+
+  if (a === "parents") {
+    return rows.filter(r => normLower(r.entourageGroup) === "parents");
+  }
+
+  if (a === "groomsmen") {
+    return rows.filter(r => normLower(r.entourageGroup) === "groomsmen");
+  }
+
+  if (a === "bridesmaids") {
+    return rows.filter(r => normLower(r.entourageGroup) === "bridesmaids");
+  }
+
+  if (a === "sponsors") {
+    return rows.filter(r => normLower(r.entourageGroup) === "sponsors");
+  }
+
   if (a === "rehearsal") {
     return rows.filter(r => r.rehearsalDinner === "Y");
   }
 
+  // all
   return rows;
 }
 
@@ -137,7 +154,7 @@ export function getEmailRecipients(rows, audience) {
       rowNumber: row.rowNumber,
       partyId: row.partyId,
       email: row.email,
-      entourage: row.entourage === "Y",
+      entourageGroup: row.entourageGroup,
       rehearsalDinner: row.rehearsalDinner === "Y",
       countComing: row.countComing,
       cutoffDate: row.cutoffDate,
