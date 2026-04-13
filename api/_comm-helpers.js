@@ -102,6 +102,7 @@ export async function readGuestRows() {
 
 export function filterAudience(rows, audience) {
   const a = normLower(audience);
+  const BOTH = "bridesmaid and groomsman";
 
   // M is blank
   if (a === "guests") {
@@ -118,11 +119,17 @@ export function filterAudience(rows, audience) {
   }
 
   if (a === "groomsmen") {
-    return rows.filter(r => normLower(r.entourageGroup) === "groomsmen");
+    return rows.filter(r => {
+      const group = normLower(r.entourageGroup);
+      return group === "groomsmen" || group === BOTH;
+    });
   }
 
   if (a === "bridesmaids") {
-    return rows.filter(r => normLower(r.entourageGroup) === "bridesmaids");
+    return rows.filter(r => {
+      const group = normLower(r.entourageGroup);
+      return group === "bridesmaids" || group === BOTH;
+    });
   }
 
   if (a === "sponsors") {
