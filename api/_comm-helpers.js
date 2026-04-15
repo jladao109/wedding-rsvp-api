@@ -15,6 +15,11 @@ export function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(norm(email));
 }
 
+function isChecked(value) {
+  const v = normLower(value);
+  return v === "y" || v === "yes" || v === "true" || v === "checked" || v === "1";
+}
+
 export function setCors(req, res) {
   const origin = req.headers.origin;
   const allowed = new Set([
@@ -72,7 +77,7 @@ export async function readGuestRows() {
 
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.SPREADSHEET_ID,
-    range: `${TAB_NAME}!A2:N`,
+    range: `${TAB_NAME}!A2:O`,
   });
 
   const rows = response.data.values || [];
@@ -94,8 +99,10 @@ export async function readGuestRows() {
       email: norm(row[9]),               // J
       phone: norm(row[10]),              // K
       cutoffDate: norm(row[11]),         // L
-      entourageGroup: norm(row[12]),     // M (dropdown values)
+      entourageGroup: norm(row[12]),     // M
       rehearsalDinner: norm(row[13]).toUpperCase(), // N
+      hotelGuestRaw: norm(row[14]),      // O
+      hotelGuest: isChecked(row[14]),    // O normalized checkbox
     };
   });
 }
@@ -140,6 +147,10 @@ export function filterAudience(rows, audience) {
     return rows.filter(r => r.rehearsalDinner === "Y");
   }
 
+  if (a === "hotel") {
+    return rows.filter(r => r.hotelGuest === true);
+  }
+
   // all
   return rows;
 }
@@ -163,6 +174,7 @@ export function getEmailRecipients(rows, audience) {
       email: row.email,
       entourageGroup: row.entourageGroup,
       rehearsalDinner: row.rehearsalDinner === "Y",
+      hotelGuest: row.hotelGuest === true,
       countComing: row.countComing,
       cutoffDate: row.cutoffDate,
     });
