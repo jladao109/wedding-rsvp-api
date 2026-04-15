@@ -12,15 +12,12 @@ export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST" });
   if (!requireAdminKey(req, res)) return;
 
-  const audience = req.body?.audience || "all";
-
   try {
     const rows = await readGuestRows();
-    const recipients = getEmailRecipients(rows, audience);
+    const recipients = getEmailRecipients(rows, req.body || {});
 
     return res.json({
       ok: true,
-      audience,
       count: recipients.length,
       recipients,
     });
