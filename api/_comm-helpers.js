@@ -101,59 +101,63 @@ export async function readGuestRows() {
       cutoffDate: norm(row[11]),         // L
       entourageGroup: norm(row[12]),     // M
       rehearsalDinnerRaw: norm(row[13]), // N
-      rehearsalDinner: isChecked(row[13]), // N checkbox normalized
+      rehearsalDinner: isChecked(row[13]),
       hotelGuestRaw: norm(row[14]),      // O
-      hotelGuest: isChecked(row[14]),    // O normalized checkbox
+      hotelGuest: isChecked(row[14]),
     };
   });
 }
 
-export function filterAudience(rows, audience) {
+function audienceMatch(row, audience) {
   const a = normLower(audience);
+  const group = normLower(row.entourageGroup);
   const BOTH = "bridesmaid and groomsman";
 
-  // M is blank
-  if (a === "guests") {
-    return rows.filter(r => !norm(r.entourageGroup));
-  }
+  if (a === "all") return true;
+  if (a === "guests") return !norm(row.entourageGroup);
+  if (a === "entourage") return !!norm(row.entourageGroup);
+  if (a === "parents") return group === "parents";
+  if (a === "groomsmen") return group === "groomsmen" || group === BOTH;
+  if (a === "bridesmaids") return group === "bridesmaids" || group === BOTH;
+  if (a === "sponsors") return group === "sponsors";
+  if (a === "rehearsal") return row.rehearsalDinner === true;
+  if (a === "hotel") return row.hotelGuest === true;
 
-  // M has any dropdown value
-  if (a === "entourage") {
-    return rows.filter(r => !!norm(r.entourageGroup));
-  }
+  return false;
+}
 
-  if (a === "parents") {
-    return rows.filter(r => normLower(r.entourageGroup) === "parents");
+function normalizeAudienceList(input) {
+  if (Array.isArray(input)) {
+    return input.map(normLower).filter(Boolean);
   }
-
-  if (a === "groomsmen") {
-    return rows.filter(r => {
-      const group = normLower(r.entourageGroup);
-      return group === "groomsmen" || group === BOTH;
-    });
+  if (typeof input === "string") {
+    return norm(input)
+      .split(",")
+      .map(normLower)
+      .filter(Boolean);
   }
+  return [];
+}
 
-  if (a === "bridesmaids") {
-    return rows.filter(r => {
-      const group = normLower(r.entourageGroup);
-      return group === "bridesmaids" || group === BOTH;
-    });
-  }
+export function filterAudience(rows, audience) {
+  const includeList = normalizeAudienceList(
+    audience?.includeAudiences ?? audience?.include ?? audience
+  );
+  const excludeList = normalizeAudienceList(
+    audience?.excludeAudiences ?? audience?.exclude ?? []
+  );
 
-  if (a === "sponsors") {
-    return rows.filter(r => normLower(r.entourageGroup) === "sponsors");
-  }
+  const includes = includeList.length ? includeList : ["all"];
 
-  if (a === "rehearsal") {
-    return rows.filter(r => r.rehearsalDinner === true);
-  }
+  return rows.filter((row) => {
+    const included = includes.some((a) => audienceMatch(row, a));
+    if (!included) return false;
 
-  if (a === "hotel") {
-    return rows.filter(r => r.hotelGuest === true);
-  }
+    const excluded = excludeList.some((a) => audienceMatch(row, a));
+    if (excluded) return false;
 
-  // all
-  return rows;
+    return true;
+  });
 }
 
 export function getEmailRecipients(rows, audience) {
@@ -195,6 +199,11 @@ export async function appendCommLog({
   try {
     const sheets = await getSheetsClient();
 
+    const audienceText =
+      typeof audience === "string"
+        ? audience
+        : JSON.stringify(audience);
+
     await sheets.spreadsheets.values.append({
       spreadsheetId: process.env.SPREADSHEET_ID,
       range: `${COMM_LOG_TAB}!A:F`,
@@ -204,7 +213,7 @@ export async function appendCommLog({
         values: [[
           new Date().toISOString(),
           channel,
-          audience,
+          audienceText,
           subject,
           count,
           `${status}${notes ? ` — ${notes}` : ""}`
