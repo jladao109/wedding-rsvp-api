@@ -20,6 +20,45 @@ function isChecked(value) {
   return v === "y" || v === "yes" || v === "true" || v === "checked" || v === "1";
 }
 
+function normalizeStringList(input) {
+  if (Array.isArray(input)) {
+    return input.map(normLower).filter(Boolean);
+  }
+
+  return norm(input)
+    .split(/[\n,;]+/)
+    .map(normLower)
+    .filter(Boolean);
+}
+
+function normalizePartyIdList(input) {
+  if (Array.isArray(input)) {
+    return input.map(normLower).filter(Boolean);
+  }
+
+  return norm(input)
+    .split(/[\n,;]+/)
+    .map(normLower)
+    .filter(Boolean);
+}
+
+function normalizeRowNumberList(input) {
+  let values = [];
+
+  if (Array.isArray(input)) {
+    values = input;
+  } else {
+    values = norm(input)
+      .split(/[\n,;]+/)
+      .map(x => x.trim())
+      .filter(Boolean);
+  }
+
+  return values
+    .map(v => Number(v))
+    .filter(v => Number.isFinite(v) && v > 0);
+}
+
 export function setCors(req, res) {
   const origin = req.headers.origin;
   const allowed = new Set([
@@ -126,25 +165,31 @@ function audienceMatch(row, audience) {
   return false;
 }
 
-function normalizeAudienceList(input) {
-  if (Array.isArray(input)) {
-    return input.map(normLower).filter(Boolean);
+function shouldExcludeRow(row, audienceConfig) {
+  const excludePartyIds = normalizePartyIdList(
+    audienceConfig?.excludePartyIds ?? audienceConfig?.excludeParties ?? []
+  );
+  const excludeRowNumbers = normalizeRowNumberList(
+    audienceConfig?.excludeRowNumbers ?? audienceConfig?.excludeRows ?? []
+  );
+
+  if (excludePartyIds.includes(normLower(row.partyId))) {
+    return true;
   }
-  if (typeof input === "string") {
-    return norm(input)
-      .split(",")
-      .map(normLower)
-      .filter(Boolean);
+
+  if (excludeRowNumbers.includes(Number(row.rowNumber))) {
+    return true;
   }
-  return [];
+
+  return false;
 }
 
-export function filterAudience(rows, audience) {
-  const includeList = normalizeAudienceList(
-    audience?.includeAudiences ?? audience?.include ?? audience
+export function filterAudience(rows, audienceConfig) {
+  const includeList = normalizeStringList(
+    audienceConfig?.includeAudiences ?? audienceConfig?.include ?? audienceConfig
   );
-  const excludeList = normalizeAudienceList(
-    audience?.excludeAudiences ?? audience?.exclude ?? []
+  const excludeAudienceList = normalizeStringList(
+    audienceConfig?.excludeAudiences ?? audienceConfig?.exclude ?? []
   );
 
   const includes = includeList.length ? includeList : ["all"];
@@ -153,15 +198,17 @@ export function filterAudience(rows, audience) {
     const included = includes.some((a) => audienceMatch(row, a));
     if (!included) return false;
 
-    const excluded = excludeList.some((a) => audienceMatch(row, a));
-    if (excluded) return false;
+    const excludedByAudience = excludeAudienceList.some((a) => audienceMatch(row, a));
+    if (excludedByAudience) return false;
+
+    if (shouldExcludeRow(row, audienceConfig)) return false;
 
     return true;
   });
 }
 
-export function getEmailRecipients(rows, audience) {
-  const filtered = filterAudience(rows, audience)
+export function getEmailRecipients(rows, audienceConfig) {
+  const filtered = filterAudience(rows, audienceConfig)
     .filter(r => r.rsvp === "Y")
     .filter(r => isValidEmail(r.email));
 
