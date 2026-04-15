@@ -13,7 +13,6 @@ export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST" });
   if (!requireAdminKey(req, res)) return;
 
-  const audience = req.body?.audience || "all";
   const subject = String(req.body?.subject || "").trim();
   const html = String(req.body?.html || "").trim();
 
@@ -26,14 +25,12 @@ export default async function handler(req, res) {
 
   try {
     const rows = await readGuestRows();
-    const recipients = getEmailRecipients(rows, audience);
+    const recipients = getEmailRecipients(rows, req.body || {});
     const text = buildTextFromHtml(html);
 
     return res.json({
       ok: true,
-      audience,
       count: recipients.length,
-      subject,
       textPreview: text.slice(0, 500),
     });
   } catch (err) {
