@@ -30,7 +30,7 @@ async function sendOneEmail({ to, subject, html, text }) {
       text,
       bcc: [
         "jason.ladao@gmail.com",
-        "yvbigornia@gmail.com"
+        "yvbornia@gmail.com"
       ],
     }),
   });
@@ -55,7 +55,6 @@ async function sendInChunks(items, chunkSize, fn) {
     const settled = await Promise.allSettled(chunk.map(fn));
     results.push(...settled);
 
-    // small pause between chunks to avoid rate limiting
     if (i + chunkSize < items.length) {
       await sleep(1200);
     }
@@ -71,7 +70,6 @@ export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST" });
   if (!requireAdminKey(req, res)) return;
 
-  const audience = req.body?.audience || "all";
   const subject = String(req.body?.subject || "").trim();
   const html = String(req.body?.html || "").trim();
   const testMode = !!req.body?.testMode;
@@ -87,7 +85,6 @@ export default async function handler(req, res) {
   try {
     const text = buildTextFromHtml(html);
 
-    // ===== TEST MODE =====
     if (testMode) {
       if (!testEmail) {
         return res.status(400).json({ error: "Test email is required for test mode." });
@@ -106,7 +103,7 @@ export default async function handler(req, res) {
 
       await appendCommLog({
         channel: "EMAIL",
-        audience: "test",
+        audience: { testMode: true, testEmail },
         subject,
         count: 1,
         status: "TEST SENT",
@@ -122,9 +119,8 @@ export default async function handler(req, res) {
       });
     }
 
-    // ===== FINAL SEND =====
     const rows = await readGuestRows();
-    const recipients = getEmailRecipients(rows, audience);
+    const recipients = getEmailRecipients(rows, req.body || {});
 
     if (!recipients.length) {
       return res.status(400).json({ error: "No eligible recipients found." });
@@ -153,7 +149,12 @@ export default async function handler(req, res) {
 
     await appendCommLog({
       channel: "EMAIL",
-      audience,
+      audience: {
+        includeAudiences: req.body?.includeAudiences || [],
+        excludeAudiences: req.body?.excludeAudiences || [],
+        excludePartyIds: req.body?.excludePartyIds || [],
+        excludeRowNumbers: req.body?.excludeRowNumbers || [],
+      },
       subject,
       count: sent,
       status: failed.length ? "PARTIAL" : "SENT",
@@ -162,7 +163,6 @@ export default async function handler(req, res) {
 
     return res.json({
       ok: true,
-      audience,
       count: recipients.length,
       sent,
       failed: failed.length,
@@ -173,8 +173,8 @@ export default async function handler(req, res) {
 
     await appendCommLog({
       channel: "EMAIL",
-      audience: req.body?.audience || "all",
-      subject: String(req.body?.subject || "").trim(),
+      audience: req.body || {},
+      subject,
       count: 0,
       status: "FAILED",
       notes: err?.message || String(err),
