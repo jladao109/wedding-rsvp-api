@@ -100,7 +100,8 @@ export async function readGuestRows() {
       phone: norm(row[10]),              // K
       cutoffDate: norm(row[11]),         // L
       entourageGroup: norm(row[12]),     // M
-      rehearsalDinner: norm(row[13]).toUpperCase(), // N
+      rehearsalDinnerRaw: norm(row[13]), // N
+      rehearsalDinner: isChecked(row[13]), // N checkbox normalized
       hotelGuestRaw: norm(row[14]),      // O
       hotelGuest: isChecked(row[14]),    // O normalized checkbox
     };
@@ -144,7 +145,7 @@ export function filterAudience(rows, audience) {
   }
 
   if (a === "rehearsal") {
-    return rows.filter(r => r.rehearsalDinner === "Y");
+    return rows.filter(r => r.rehearsalDinner === true);
   }
 
   if (a === "hotel") {
@@ -173,7 +174,7 @@ export function getEmailRecipients(rows, audience) {
       partyId: row.partyId,
       email: row.email,
       entourageGroup: row.entourageGroup,
-      rehearsalDinner: row.rehearsalDinner === "Y",
+      rehearsalDinner: row.rehearsalDinner === true,
       hotelGuest: row.hotelGuest === true,
       countComing: row.countComing,
       cutoffDate: row.cutoffDate,
