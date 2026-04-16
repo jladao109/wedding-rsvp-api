@@ -24,6 +24,7 @@ function parseNameTriplet(nameStr) {
 
   const display = [first, last, suffix].filter(Boolean).join(" ");
   const key = [normLower(last), normLower(first), normLower(suffix)].join("|");
+  const noSuffixKey = [normLower(last), normLower(first), ""].join("|");
 
   return {
     lastName: last,
@@ -31,12 +32,38 @@ function parseNameTriplet(nameStr) {
     suffix,
     display: display.trim(),
     key,
+    noSuffixKey,
   };
 }
 
 function parseNamesCell(namesCell) {
   return parseDelimitedList(namesCell, ";")
     .map(parseNameTriplet)
+    .filter((p) => p.firstName || p.lastName);
+}
+
+// G = Last, First, [Suffix]
+function parseComingNamesCell(comingNamesCell) {
+  return parseDelimitedList(comingNamesCell, ";")
+    .map((entry) => {
+      const parts = entry.split(",").map((p) => p.trim());
+      const last = parts[0] ?? "";
+      const first = parts[1] ?? "";
+      const suffix = parts[2] ?? "";
+
+      const display = [first, last, suffix].filter(Boolean).join(" ");
+      const key = [normLower(last), normLower(first), normLower(suffix)].join("|");
+      const noSuffixKey = [normLower(last), normLower(first), ""].join("|");
+
+      return {
+        lastName: last,
+        firstName: first,
+        suffix,
+        display: display.trim(),
+        key,
+        noSuffixKey,
+      };
+    })
     .filter((p) => p.firstName || p.lastName);
 }
 
@@ -64,6 +91,7 @@ function parseMealsCell(mealsCell) {
     }
 
     const key = [normLower(lastName), normLower(firstName), normLower(suffix)].join("|");
+    const noSuffixKey = [normLower(lastName), normLower(firstName), ""].join("|");
 
     return {
       lastName,
@@ -72,6 +100,7 @@ function parseMealsCell(mealsCell) {
       meal,
       display: [firstName, lastName, suffix].filter(Boolean).join(" ").trim(),
       key,
+      noSuffixKey,
     };
   }).filter(Boolean);
 }
@@ -101,6 +130,7 @@ function parseAgesCell(agesCell) {
 
     const age = /^\d+$/.test(ageRaw) ? Number(ageRaw) : null;
     const key = [normLower(lastName), normLower(firstName), normLower(suffix)].join("|");
+    const noSuffixKey = [normLower(lastName), normLower(firstName), ""].join("|");
 
     return {
       lastName,
@@ -110,52 +140,99 @@ function parseAgesCell(agesCell) {
       ageRaw,
       display: [firstName, lastName, suffix].filter(Boolean).join(" ").trim(),
       key,
+      noSuffixKey,
     };
   }).filter(Boolean);
 }
 
-function mapByKey(arr) {
+function mapByKeyWithFallback(arr) {
   const map = new Map();
-  arr.forEach((item) => map.set(item.key, item));
+
+  arr.forEach((item) => {
+    map.set(item.key, item);
+    if (!map.has(item.noSuffixKey)) {
+      map.set(item.noSuffixKey, item);
+    }
+  });
+
   return map;
 }
 
 function buildGuestStatuses(row) {
   const allGuests = parseNamesCell(row.names || "");
-  const comingGuestsFromSheet = parseNamesCell(row.comingNames || "");
-  const meals = parseMealsCell(row.meals || "");
-  const ages = parseAgesCell(row.ages || "");
+  const comingGuestsFromSheet = parseComingNamesCell(row.comingNames || "");
+  const mealsMap = mapByKeyWithFallback(parseMealsCell(row.meals || ""));
+  const agesMap = mapByKeyWithFallback(parseAgesCell(row.ages || ""));
 
-  const comingKeySet = new Set(comingGuestsFromSheet.map((g) => g.key));
-  const comingNoSuffixKeySet = new Set(
-    comingGuestsFromSheet.map((g) => [normLower(g.lastName), normLower(g.firstName), ""].join("|"))
-  );
+  const allByExact = new Map(allGuests.map((g) => [g.key, g]));
+  const allByNoSuffix = new Map(allGuests.map((g) => [g.noSuffixKey, g]));
 
-  const mealsMap = mapByKey(meals);
-  const agesMap = mapByKey(ages);
+  const usedInvitedKeys = new Set();
+  const guestStatuses = [];
 
-  return allGuests.map((guest) => {
-    let status = "pending";
+  // Source of truth for "coming" = Column G
+  comingGuestsFromSheet.forEach((guestFromG) => {
+    const invitedGuest =
+      allByExact.get(guestFromG.key) ||
+      allByNoSuffix.get(guestFromG.noSuffixKey);
 
-    const guestNoSuffixKey = [normLower(guest.lastName), normLower(guest.firstName), ""].join("|");
-    const isMarkedComing =
-      comingKeySet.has(guest.key) || comingNoSuffixKeySet.has(guestNoSuffixKey);
+    const baseGuest = invitedGuest || guestFromG;
 
-    if (row.rsvp === "N") {
-      status = "not_coming";
-    } else if (row.rsvp === "Y") {
-      status = isMarkedComing ? "coming" : "not_coming";
+    if (invitedGuest) {
+      usedInvitedKeys.add(invitedGuest.key);
     }
 
     const mealInfo =
+      mealsMap.get(baseGuest.key) ||
+      mealsMap.get(baseGuest.noSuffixKey);
+
+    const ageInfo =
+      agesMap.get(baseGuest.key) ||
+      agesMap.get(baseGuest.noSuffixKey);
+
+    guestStatuses.push({
+      rowNumber: row.rowNumber,
+      partyId: row.partyId,
+      email: row.email,
+      phone: row.phone,
+      cutoffDate: row.cutoffDate,
+      entourageGroup: row.entourageGroup,
+      rehearsalDinner: row.rehearsalDinner === true,
+      hotelGuest: row.hotelGuest === true,
+      rsvpPartyStatus: row.rsvp || "",
+      status: "coming",
+      firstName: baseGuest.firstName,
+      lastName: baseGuest.lastName,
+      suffix: baseGuest.suffix,
+      display: baseGuest.display,
+      key: baseGuest.key,
+      noSuffixKey: baseGuest.noSuffixKey,
+      meal: mealInfo?.meal || "",
+      age: ageInfo?.age ?? null,
+      ageRaw: ageInfo?.ageRaw || "",
+    });
+  });
+
+  // Everyone else from Column B is not coming or pending
+  allGuests.forEach((guest) => {
+    if (usedInvitedKeys.has(guest.key)) return;
+
+    const mealInfo =
       mealsMap.get(guest.key) ||
-      mealsMap.get(guestNoSuffixKey);
+      mealsMap.get(guest.noSuffixKey);
 
     const ageInfo =
       agesMap.get(guest.key) ||
-      agesMap.get(guestNoSuffixKey);
+      agesMap.get(guest.noSuffixKey);
 
-    return {
+    let status = "pending";
+    if (row.rsvp === "N") {
+      status = "not_coming";
+    } else if (row.rsvp === "Y") {
+      status = "not_coming";
+    }
+
+    guestStatuses.push({
       rowNumber: row.rowNumber,
       partyId: row.partyId,
       email: row.email,
@@ -171,12 +248,16 @@ function buildGuestStatuses(row) {
       suffix: guest.suffix,
       display: guest.display,
       key: guest.key,
+      noSuffixKey: guest.noSuffixKey,
       meal: mealInfo?.meal || "",
       age: ageInfo?.age ?? null,
       ageRaw: ageInfo?.ageRaw || "",
-    };
+    });
   });
+
+  return guestStatuses;
 }
+
 export default async function handler(req, res) {
   setCors(req, res);
 
