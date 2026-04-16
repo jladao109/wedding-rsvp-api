@@ -170,7 +170,6 @@ function buildGuestStatuses(row) {
   const usedInvitedKeys = new Set();
   const guestStatuses = [];
 
-  // Source of truth for "coming" = Column G
   comingGuestsFromSheet.forEach((guestFromG) => {
     const invitedGuest =
       allByExact.get(guestFromG.key) ||
@@ -213,7 +212,6 @@ function buildGuestStatuses(row) {
     });
   });
 
-  // Everyone else from Column B is not coming or pending
   allGuests.forEach((guest) => {
     if (usedInvitedKeys.has(guest.key)) return;
 
@@ -255,7 +253,75 @@ function buildGuestStatuses(row) {
     });
   });
 
-  return guestStatuses;
+  return {
+    guests: guestStatuses,
+    allGuests,
+    comingGuestsFromSheet,
+    meals: parseMealsCell(row.meals || ""),
+    ages: parseAgesCell(row.ages || ""),
+  };
+}
+
+function buildRowMismatches(row, parsed) {
+  const mismatches = [];
+
+  const invitedCount = parsed.allGuests.length;
+  const comingCountFromNames = parsed.comingGuestsFromSheet.length;
+  const mealCount = parsed.meals.length;
+  const ageCount = parsed.ages.length;
+  const declaredCount = Number(row.countComing || 0);
+
+  if (row.rsvp === "Y" && declaredCount !== comingCountFromNames) {
+    mismatches.push({
+      type: "count_vs_names",
+      rowNumber: row.rowNumber,
+      partyId: row.partyId,
+      message: `Column F says ${declaredCount} guest(s) are coming, but Column G contains ${comingCountFromNames} name(s).`,
+    });
+  }
+
+  if (mealCount > comingCountFromNames) {
+    mismatches.push({
+      type: "meals_gt_coming",
+      rowNumber: row.rowNumber,
+      partyId: row.partyId,
+      message: `Column H contains ${mealCount} meal entr${mealCount === 1 ? "y" : "ies"}, but Column G contains ${comingCountFromNames} coming guest name(s).`,
+    });
+  }
+
+  if (ageCount > comingCountFromNames) {
+    mismatches.push({
+      type: "ages_gt_coming",
+      rowNumber: row.rowNumber,
+      partyId: row.partyId,
+      message: `Column I contains ${ageCount} age entr${ageCount === 1 ? "y" : "ies"}, but Column G contains ${comingCountFromNames} coming guest name(s).`,
+    });
+  }
+
+  const invitedExact = new Set(parsed.allGuests.map(g => g.key));
+  const invitedNoSuffix = new Set(parsed.allGuests.map(g => g.noSuffixKey));
+
+  parsed.comingGuestsFromSheet.forEach((guest) => {
+    if (!invitedExact.has(guest.key) && !invitedNoSuffix.has(guest.noSuffixKey)) {
+      mismatches.push({
+        type: "coming_not_in_invited",
+        rowNumber: row.rowNumber,
+        partyId: row.partyId,
+        message: `Guest "${guest.display}" appears in Column G but was not found in Column B.`,
+      });
+    }
+  });
+
+  if (comingCountFromNames > invitedCount) {
+    mismatches.push({
+      type: "coming_gt_invited",
+      rowNumber: row.rowNumber,
+      partyId: row.partyId,
+      message: `Column G contains ${comingCountFromNames} coming guest name(s), but Column B contains only ${invitedCount} invited guest name(s).`,
+    });
+  }
+
+  return mismatches;
 }
 
 export default async function handler(req, res) {
@@ -267,12 +333,16 @@ export default async function handler(req, res) {
 
   try {
     const rows = await readGuestRows();
+    const mismatches = [];
 
     const parties = rows.map((row) => {
-      const guests = buildGuestStatuses(row);
+      const parsed = buildGuestStatuses(row);
+      const guests = parsed.guests;
       const comingGuests = guests.filter((g) => g.status === "coming");
       const notComingGuests = guests.filter((g) => g.status === "not_coming");
       const pendingGuests = guests.filter((g) => g.status === "pending");
+
+      mismatches.push(...buildRowMismatches(row, parsed));
 
       return {
         rowNumber: row.rowNumber,
@@ -285,6 +355,7 @@ export default async function handler(req, res) {
         rehearsalDinner: row.rehearsalDinner === true,
         hotelGuest: row.hotelGuest === true,
         seatsReserved: row.seatsReserved || "",
+        declaredComingCount: Number(row.countComing || 0),
         guestCount: guests.length,
         comingCount: comingGuests.length,
         notComingCount: notComingGuests.length,
@@ -309,6 +380,7 @@ export default async function handler(req, res) {
       parties,
       guests,
       entourageGroups,
+      mismatches,
     });
   } catch (err) {
     console.error("OVERVIEW DATA ERROR:", err);
