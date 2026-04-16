@@ -165,7 +165,26 @@ function audienceMatch(row, audience) {
   return false;
 }
 
-function shouldExcludeRow(row, audienceConfig) {
+function matchesManualInclude(row, audienceConfig) {
+  const includePartyIds = normalizePartyIdList(
+    audienceConfig?.includePartyIds ?? audienceConfig?.includeParties ?? []
+  );
+  const includeRowNumbers = normalizeRowNumberList(
+    audienceConfig?.includeRowNumbers ?? audienceConfig?.includeRows ?? []
+  );
+
+  if (includePartyIds.includes(normLower(row.partyId))) {
+    return true;
+  }
+
+  if (includeRowNumbers.includes(Number(row.rowNumber))) {
+    return true;
+  }
+
+  return false;
+}
+
+function matchesManualExclude(row, audienceConfig) {
   const excludePartyIds = normalizePartyIdList(
     audienceConfig?.excludePartyIds ?? audienceConfig?.excludeParties ?? []
   );
@@ -195,13 +214,16 @@ export function filterAudience(rows, audienceConfig) {
   const includes = includeList.length ? includeList : ["all"];
 
   return rows.filter((row) => {
-    const included = includes.some((a) => audienceMatch(row, a));
+    const includedByAudience = includes.some((a) => audienceMatch(row, a));
+    const includedByManual = matchesManualInclude(row, audienceConfig);
+    const included = includedByAudience || includedByManual;
+
     if (!included) return false;
 
     const excludedByAudience = excludeAudienceList.some((a) => audienceMatch(row, a));
     if (excludedByAudience) return false;
 
-    if (shouldExcludeRow(row, audienceConfig)) return false;
+    if (matchesManualExclude(row, audienceConfig)) return false;
 
     return true;
   });
