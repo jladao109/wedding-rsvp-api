@@ -205,26 +205,28 @@ function matchesManualExclude(row, audienceConfig) {
 
 export function filterAudience(rows, audienceConfig) {
   const includeList = normalizeStringList(
-    audienceConfig?.includeAudiences ?? audienceConfig?.include ?? audienceConfig
+    audienceConfig?.includeAudiences ?? audienceConfig?.include ?? []
   );
   const excludeAudienceList = normalizeStringList(
     audienceConfig?.excludeAudiences ?? audienceConfig?.exclude ?? []
   );
-
-  const includes = includeList.length ? includeList : ["all"];
-
+  
   return rows.filter((row) => {
-    const includedByAudience = includes.some((a) => audienceMatch(row, a));
+    const includedByAudience =
+      includeList.length > 0
+        ? includeList.some((a) => audienceMatch(row, a))
+        : false;
+  
     const includedByManual = matchesManualInclude(row, audienceConfig);
     const included = includedByAudience || includedByManual;
-
+  
     if (!included) return false;
-
+  
     const excludedByAudience = excludeAudienceList.some((a) => audienceMatch(row, a));
     if (excludedByAudience) return false;
-
+  
     if (matchesManualExclude(row, audienceConfig)) return false;
-
+  
     return true;
   });
 }
