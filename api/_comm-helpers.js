@@ -204,9 +204,18 @@ function matchesManualExclude(row, audienceConfig) {
 }
 
 export function filterAudience(rows, audienceConfig) {
-  const includeList = normalizeStringList(
+  let includeList = normalizeStringList(
     audienceConfig?.includeAudiences ?? audienceConfig?.include ?? []
   );
+  
+  const hasManualInclude =
+    normalizePartyIdList(audienceConfig?.includePartyIds ?? []).length > 0 ||
+    normalizeRowNumberList(audienceConfig?.includeRowNumbers ?? []).length > 0;
+  
+  // Only treat "all" as empty if user ALSO used manual targeting
+  if (includeList.length === 1 && includeList[0] === "all" && hasManualInclude) {
+    includeList = [];
+  }
   const excludeAudienceList = normalizeStringList(
     audienceConfig?.excludeAudiences ?? audienceConfig?.exclude ?? []
   );
