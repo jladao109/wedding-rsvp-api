@@ -298,16 +298,65 @@ function buildRowMismatches(row, parsed) {
     });
   }
 
-  const invitedExact = new Set(parsed.allGuests.map(g => g.key));
-  const invitedNoSuffix = new Set(parsed.allGuests.map(g => g.noSuffixKey));
+  const invitedExact = new Set(parsed.allGuests.map((g) => g.key));
+  const invitedNoSuffix = new Set(parsed.allGuests.map((g) => g.noSuffixKey));
+
+  const comingExact = new Set(parsed.comingGuestsFromSheet.map((g) => g.key));
+  const comingNoSuffix = new Set(parsed.comingGuestsFromSheet.map((g) => g.noSuffixKey));
+
+  const hasInvitedGuest = (guest) =>
+    invitedExact.has(guest.key) || invitedNoSuffix.has(guest.noSuffixKey);
+
+  const hasComingGuest = (guest) =>
+    comingExact.has(guest.key) || comingNoSuffix.has(guest.noSuffixKey);
 
   parsed.comingGuestsFromSheet.forEach((guest) => {
-    if (!invitedExact.has(guest.key) && !invitedNoSuffix.has(guest.noSuffixKey)) {
+    if (!hasInvitedGuest(guest)) {
       mismatches.push({
         type: "coming_not_in_invited",
         rowNumber: row.rowNumber,
         partyId: row.partyId,
         message: `Guest "${guest.display}" appears in Column G but was not found in Column B.`,
+      });
+    }
+  });
+
+  parsed.meals.forEach((guest) => {
+    if (!hasInvitedGuest(guest)) {
+      mismatches.push({
+        type: "meal_not_in_invited",
+        rowNumber: row.rowNumber,
+        partyId: row.partyId,
+        message: `Guest "${guest.display}" appears in Column H but was not found in Column B.`,
+      });
+    }
+
+    if (!hasComingGuest(guest)) {
+      mismatches.push({
+        type: "meal_not_in_coming",
+        rowNumber: row.rowNumber,
+        partyId: row.partyId,
+        message: `Guest "${guest.display}" appears in Column H but was not found in Column G.`,
+      });
+    }
+  });
+
+  parsed.ages.forEach((guest) => {
+    if (!hasInvitedGuest(guest)) {
+      mismatches.push({
+        type: "age_not_in_invited",
+        rowNumber: row.rowNumber,
+        partyId: row.partyId,
+        message: `Guest "${guest.display}" appears in Column I but was not found in Column B.`,
+      });
+    }
+
+    if (!hasComingGuest(guest)) {
+      mismatches.push({
+        type: "age_not_in_coming",
+        rowNumber: row.rowNumber,
+        partyId: row.partyId,
+        message: `Guest "${guest.display}" appears in Column I but was not found in Column G.`,
       });
     }
   });
