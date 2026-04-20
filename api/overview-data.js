@@ -304,11 +304,17 @@ function buildRowMismatches(row, parsed) {
   const comingExact = new Set(parsed.comingGuestsFromSheet.map((g) => g.key));
   const comingNoSuffix = new Set(parsed.comingGuestsFromSheet.map((g) => g.noSuffixKey));
 
+  const mealExact = new Set(parsed.meals.map((g) => g.key));
+  const mealNoSuffix = new Set(parsed.meals.map((g) => g.noSuffixKey));
+
   const hasInvitedGuest = (guest) =>
     invitedExact.has(guest.key) || invitedNoSuffix.has(guest.noSuffixKey);
 
   const hasComingGuest = (guest) =>
     comingExact.has(guest.key) || comingNoSuffix.has(guest.noSuffixKey);
+
+  const hasMealGuest = (guest) =>
+    mealExact.has(guest.key) || mealNoSuffix.has(guest.noSuffixKey);
 
   parsed.comingGuestsFromSheet.forEach((guest) => {
     if (!hasInvitedGuest(guest)) {
@@ -317,6 +323,15 @@ function buildRowMismatches(row, parsed) {
         rowNumber: row.rowNumber,
         partyId: row.partyId,
         message: `Guest "${guest.display}" appears in Column G but was not found in Column B.`,
+      });
+    }
+
+    if (!hasMealGuest(guest)) {
+      mismatches.push({
+        type: "coming_missing_meal",
+        rowNumber: row.rowNumber,
+        partyId: row.partyId,
+        message: `Guest "${guest.display}" appears in Column G but does not have a meal entry in Column H.`,
       });
     }
   });
