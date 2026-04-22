@@ -31,7 +31,7 @@ export default async function handler(req, res) {
     return res.json({
       ok: true,
       count: recipients.length,
-      textPreview: text.slice(0, 500),
+      recipients,
     });
   } catch (err) {
     console.error("COMM PREVIEW ERROR:", err);
