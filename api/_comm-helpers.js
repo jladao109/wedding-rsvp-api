@@ -151,19 +151,28 @@ function audienceMatch(row, audience) {
   const a = normLower(audience);
   const group = normLower(row.entourageGroup);
   const BOTH = "bridesmaid and groomsman";
-
+  const GROOMSMAN_AND_SPONSOR = "groomsman and sponsor";
+  
   if (a === "all") return true;
   if (a === "guests") return !norm(row.entourageGroup);
   if (a === "entourage") return !!norm(row.entourageGroup);
   if (a === "parents") return group === "parents";
-  if (a === "groomsmen") return group === "groomsmen" || group === BOTH;
+  if (a === "groomsmen") {
+    return (
+      group === "groomsmen" ||
+      group === BOTH ||
+      group === GROOMSMAN_AND_SPONSOR
+    );
+  }
   if (a === "bridesmaids") return group === "bridesmaids" || group === BOTH;
-  if (a === "sponsors") return group === "sponsors";
+  if (a === "sponsors") {
+    return group === "sponsors" || group === GROOMSMAN_AND_SPONSOR;
+  }
   if (a === "rehearsal") return row.rehearsalDinner === true;
   if (a === "hotel") return row.hotelGuest === true;
-
-  return false;
-}
+  
+    return false;
+  }
 
 function matchesManualInclude(row, audienceConfig) {
   const includePartyIds = normalizePartyIdList(
