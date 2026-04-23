@@ -210,7 +210,7 @@ function buildDefaultTables() {
   const positions = [
     { x: 250, y: 180 },  // 1
     { x: 455, y: 180 },  // 2
-    { x: 625, y: 180 },  // 3
+    { x: 610, y: 200 },  // 3 (slightly down + left)
 
     { x: 250, y: 400 },  // 4
     { x: 455, y: 400 },  // 5
@@ -219,7 +219,7 @@ function buildDefaultTables() {
     { x: 240, y: 630 },  // 7
     { x: 445, y: 630 },  // 8
 
-    { x: 835, y: 180 },  // 9
+    { x: 860, y: 200 },  // 9 (slightly down + right)
     { x: 1025, y: 180 }, // 10
     { x: 1185, y: 180 }, // 11
 
