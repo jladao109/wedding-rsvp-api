@@ -1,4 +1,3 @@
-import { google } from "googleapis";
 import {
   setCors,
   requireAdminKey,
@@ -127,12 +126,14 @@ function parseAgesCell(agesCell) {
 
 function mapByKeyWithFallback(arr) {
   const map = new Map();
+
   arr.forEach((item) => {
     map.set(item.key, item);
     if (!map.has(item.noSuffixKey)) {
       map.set(item.noSuffixKey, item);
     }
   });
+
   return map;
 }
 
@@ -157,9 +158,11 @@ async function ensureTabExistsWithHeaders(sheets, spreadsheetId, tabName, header
     });
   }
 
+  const lastCol = String.fromCharCode(64 + headers.length);
+
   await sheets.spreadsheets.values.update({
     spreadsheetId,
-    range: `${tabName}!A1:${String.fromCharCode(64 + headers.length)}1`,
+    range: `${tabName}!A1:${lastCol}1`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [headers] },
   });
@@ -195,6 +198,7 @@ function buildComingGuests(rows) {
         child,
         childAge: child === "Y" ? String(age ?? "") : "",
         table: "",
+        seatIndex: "",
       });
     });
   });
@@ -204,9 +208,9 @@ function buildComingGuests(rows) {
 
 function buildDefaultTables() {
   const positions = [
-    { x: 230, y: 170 }, { x: 430, y: 170 }, { x: 630, y: 170 }, { x: 830, y: 170 }, { x: 1030, y: 170 }, { x: 1230, y: 170 },
-    { x: 230, y: 360 }, { x: 430, y: 360 }, { x: 630, y: 360 }, { x: 830, y: 360 }, { x: 1030, y: 360 }, { x: 1230, y: 360 },
-    { x: 230, y: 570 }, { x: 430, y: 570 }, { x: 630, y: 570 }, { x: 830, y: 570 }, { x: 1030, y: 570 }, { x: 1160, y: 630 },
+    { x: 220, y: 185 }, { x: 420, y: 185 }, { x: 620, y: 185 }, { x: 820, y: 185 }, { x: 1020, y: 185 }, { x: 1180, y: 185 },
+    { x: 220, y: 380 }, { x: 420, y: 380 }, { x: 620, y: 380 }, { x: 820, y: 380 }, { x: 1020, y: 380 }, { x: 1180, y: 380 },
+    { x: 220, y: 610 }, { x: 420, y: 610 }, { x: 620, y: 610 }, { x: 820, y: 610 }, { x: 1020, y: 610 }, { x: 1180, y: 610 },
   ];
 
   return Array.from({ length: 18 }, (_, i) => ({
@@ -214,6 +218,7 @@ function buildDefaultTables() {
     x: positions[i].x,
     y: positions[i].y,
     size: 10,
+    seatCount: 0,
   }));
 }
 
@@ -232,14 +237,14 @@ export default async function handler(req, res) {
       sheets,
       spreadsheetId,
       SEATING_TAB,
-      ["Name", "Party ID", "Meal Preference", "Child", "Child Age", "Table"]
+      ["Name", "Party ID", "Meal Preference", "Child", "Child Age", "Table", "Seat Index"]
     );
 
     await ensureTabExistsWithHeaders(
       sheets,
       spreadsheetId,
       SEATING_TABLES_TAB,
-      ["Table", "Size"]
+      ["Table", "Size", "Seat Count"]
     );
 
     const guestRows = await readGuestRows();
@@ -247,20 +252,29 @@ export default async function handler(req, res) {
 
     const seatingRes = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${SEATING_TAB}!A2:F`,
+      range: `${SEATING_TAB}!A2:G`,
     });
 
     const seatingRows = seatingRes.data.values || [];
+
     const seatingMap = new Map(
-      seatingRows.map((r) => [
-        `${norm(r[1])}__${normLower(r[0])}`,
-        { table: norm(r[5]) },
-      ])
+      seatingRows.map((r) => {
+        const name = norm(r[0]);
+        const partyId = norm(r[1]);
+        return [
+          `${partyId}__${normLower(name)}`,
+          {
+            table: norm(r[5]),
+            seatIndex: norm(r[6]),
+          },
+        ];
+      })
     );
 
     const mergedGuests = comingGuests.map((g) => ({
       ...g,
       table: seatingMap.get(`${g.partyId}__${normLower(g.name)}`)?.table || "",
+      seatIndex: seatingMap.get(`${g.partyId}__${normLower(g.name)}`)?.seatIndex || "",
     }));
 
     const seatingValues = mergedGuests.map((g) => [
@@ -270,17 +284,18 @@ export default async function handler(req, res) {
       g.child,
       g.childAge,
       g.table,
+      g.seatIndex,
     ]);
 
     await sheets.spreadsheets.values.clear({
       spreadsheetId,
-      range: `${SEATING_TAB}!A2:F`,
+      range: `${SEATING_TAB}!A2:G`,
     });
 
     if (seatingValues.length) {
       await sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: `${SEATING_TAB}!A2:F`,
+        range: `${SEATING_TAB}!A2:G`,
         valueInputOption: "USER_ENTERED",
         requestBody: { values: seatingValues },
       });
@@ -288,34 +303,50 @@ export default async function handler(req, res) {
 
     const tablesRes = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${SEATING_TABLES_TAB}!A2:B`,
+      range: `${SEATING_TABLES_TAB}!A2:C`,
     });
 
     const tableRows = tablesRes.data.values || [];
-    const tableSizeMap = new Map(
+
+    const tableMetaMap = new Map(
       tableRows
-        .map((r) => [Number(r[0]), Number(r[1])])
-        .filter(([id, size]) => Number.isFinite(id) && (size === 10 || size === 12))
+        .map((r) => [
+          Number(r[0]),
+          {
+            size: Number(r[1]),
+            seatCount: Number(r[2]),
+          },
+        ])
+        .filter(([id, meta]) =>
+          Number.isFinite(id) &&
+          Number.isFinite(meta.size) &&
+          Number.isFinite(meta.seatCount)
+        )
     );
 
     const tables = buildDefaultTables().map((t) => ({
       ...t,
-      size: tableSizeMap.get(t.id) || 10,
+      size: tableMetaMap.get(t.id)?.size === 12 ? 12 : 10,
+      seatCount: Number.isFinite(tableMetaMap.get(t.id)?.seatCount)
+        ? Math.max(0, tableMetaMap.get(t.id).seatCount)
+        : 0,
     }));
 
-    const tableSheetValues = tables.map((t) => [t.id, t.size]);
+    const tableSheetValues = tables.map((t) => [t.id, t.size, t.seatCount]);
 
     await sheets.spreadsheets.values.clear({
       spreadsheetId,
-      range: `${SEATING_TABLES_TAB}!A2:B`,
+      range: `${SEATING_TABLES_TAB}!A2:C`,
     });
 
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: `${SEATING_TABLES_TAB}!A2:B`,
-      valueInputOption: "USER_ENTERED",
-      requestBody: { values: tableSheetValues },
-    });
+    if (tableSheetValues.length) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `${SEATING_TABLES_TAB}!A2:C`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: tableSheetValues },
+      });
+    }
 
     return res.json({
       ok: true,
