@@ -5,6 +5,7 @@ import {
 } from "./_comm-helpers.js";
 
 const TAB = process.env.SEATING_OUTPUT_TAB || "Tables Seats";
+const TAB_RANGE = `'${TAB}'`;
 
 const TABLE_MAP = {
   9:{nameCol:"E",mealCol:"F",startRow:2,endRow:13},
