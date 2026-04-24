@@ -1,4 +1,8 @@
-import { google } from "googleapis";
+import {
+  setCors,
+  requireAdminKey,
+  getSheetsClient,
+} from "./_comm-helpers.js";
 
 const TAB = process.env.SEATING_OUTPUT_TAB || "Tables Seats";
 
@@ -25,46 +29,6 @@ const TABLE_MAP = {
   7:{nameCol:"K",mealCol:"L",startRow:45,endRow:56},
   8:{nameCol:"N",mealCol:"O",startRow:45,endRow:56},
 };
-
-function setCors(req, res) {
-  const origin = req.headers.origin || "";
-
-  const allowedOrigins = [
-    "https://bigornia2ladao.com",
-    "https://www.bigornia2ladao.com",
-  ];
-
-  res.setHeader(
-    "Access-Control-Allow-Origin",
-    allowedOrigins.includes(origin) ? origin : "https://www.bigornia2ladao.com"
-  );
-
-  res.setHeader("Vary", "Origin");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-admin-key");
-}
-
-function requireAdminKey(req, res) {
-  const expected = process.env.ADMIN_COMM_KEY;
-  const received = req.headers["x-admin-key"];
-
-  if (!expected || received !== expected) {
-    res.status(401).json({ error: "Unauthorized" });
-    return false;
-  }
-
-  return true;
-}
-
-function getSheetsClient() {
-  const auth = new google.auth.JWT({
-    email: process.env.GOOGLE_CLIENT_EMAIL,
-    key: String(process.env.GOOGLE_PRIVATE_KEY || "").replace(/\\n/g, "\n"),
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-  });
-
-  return google.sheets({ version: "v4", auth });
-}
 
 function mealAbbrev(value) {
   const meal = String(value || "").trim().toLowerCase();
@@ -122,7 +86,7 @@ export default async function handler(req, res) {
 
     const guests = Array.isArray(req.body?.guests) ? req.body.guests : [];
 
-    const sheets = getSheetsClient();
+    const sheets = await getSheetsClient();
 
     const clearRanges = [
       `${TAB}!A2:B3`,
