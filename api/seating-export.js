@@ -45,7 +45,7 @@ function setCors(req, res) {
 }
 
 function requireAdminKey(req, res) {
-  const expected = process.env.ADMIN_KEY;
+  const expected = process.env.ADMIN_COMM_KEY;
   const received = req.headers["x-admin-key"];
 
   if (!expected || received !== expected) {
