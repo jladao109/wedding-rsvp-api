@@ -26,7 +26,7 @@ const TABLE_MAP = {
   8:{nameCol:"N",mealCol:"O",startRow:45,endRow:56},
 };
 
-function setCors(req, res) {
+function setCors(res) {
   res.setHeader("Access-Control-Allow-Origin", "https://bigornia2ladao.com");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-admin-key");
