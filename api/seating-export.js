@@ -26,8 +26,19 @@ const TABLE_MAP = {
   8:{nameCol:"N",mealCol:"O",startRow:45,endRow:56},
 };
 
-function setCors(res) {
-  res.setHeader("Access-Control-Allow-Origin", "https://bigornia2ladao.com");
+function setCors(req, res) {
+  const allowedOrigins = [
+    "https://bigornia2ladao.com",
+    "https://www.bigornia2ladao.com",
+  ];
+
+  const origin = req.headers.origin;
+
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+
+  res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-admin-key");
 }
