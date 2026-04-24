@@ -122,6 +122,18 @@ export default async function handler(req, res) {
       ],
     });
 
+    // --- Pending RSVP section ---
+    const pendingGuests = guests
+      .filter(isPendingRsvp)
+      .map((g) => [displayName(g)]);
+    
+    if (pendingGuests.length) {
+      data.push({
+        range: `${TAB_RANGE}!Q31:Q${30 + pendingGuests.length}`,
+        values: pendingGuests,
+      });
+    }
+
     Object.entries(TABLE_MAP).forEach(([tableId, map]) => {
       const seatCount = map.endRow - map.startRow + 1;
 
