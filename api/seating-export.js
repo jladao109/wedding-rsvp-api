@@ -27,16 +27,17 @@ const TABLE_MAP = {
 };
 
 function setCors(req, res) {
+  const origin = req.headers.origin || "";
+
   const allowedOrigins = [
     "https://bigornia2ladao.com",
     "https://www.bigornia2ladao.com",
   ];
 
-  const origin = req.headers.origin;
-
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-  }
+  res.setHeader(
+    "Access-Control-Allow-Origin",
+    allowedOrigins.includes(origin) ? origin : "https://www.bigornia2ladao.com"
+  );
 
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -103,8 +104,14 @@ function isGroom(g) {
 export default async function handler(req, res) {
   setCors(req, res);
 
-  if (req.method === "OPTIONS") return res.status(204).end();
-  if (req.method !== "POST") return res.status(405).json({ error: "Use POST" });
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
+
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Use POST" });
+  }
+
   if (!requireAdminKey(req, res)) return;
 
   try {
