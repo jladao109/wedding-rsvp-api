@@ -65,6 +65,14 @@ function isGroom(g) {
   return String(g.name || "").toLowerCase().includes("jason");
 }
 
+function isPendingRsvp(g) {
+  const status = String(
+    g.rsvpStatus || g.status || g.response || g.rsvp || ""
+  ).trim().toLowerCase();
+
+  return status === "pending";
+}
+
 export default async function handler(req, res) {
   setCors(req, res);
 
@@ -90,6 +98,7 @@ export default async function handler(req, res) {
 
     const clearRanges = [
       `${TAB}!A2:B3`,
+      `${TAB_RANGE}!Q31:Q`,
       ...Object.values(TABLE_MAP).map(
         (m) => `${TAB}!${m.nameCol}${m.startRow}:${m.mealCol}${m.endRow}`
       ),
