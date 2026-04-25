@@ -124,9 +124,9 @@ export default async function handler(req, res) {
     });
 
     // --- Pending RSVP section ---
-    const pendingGuests = guests
-      .filter(isPendingRsvp)
-      .map((g) => [displayName(g)]);
+    const pendingGuests = Array.isArray(req.body?.pendingGuests)
+      ? req.body.pendingGuests.map((g) => [displayName(g)])
+      : [];
     
     if (pendingGuests.length) {
       data.push({
