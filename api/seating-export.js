@@ -20,10 +20,10 @@ const TABLE_MAP = {
   17:{nameCol:"N",mealCol:"O",startRow:16,endRow:27},
   18:{nameCol:"Q",mealCol:"R",startRow:16,endRow:27},
 
-  1:{nameCol:"E",mealCol:"F",startRow:31,endRow:40},
-  2:{nameCol:"H",mealCol:"I",startRow:31,endRow:40},
-  3:{nameCol:"K",mealCol:"L",startRow:31,endRow:40},
-  4:{nameCol:"N",mealCol:"O",startRow:31,endRow:40},
+  1:{nameCol:"E",mealCol:"F",startRow:31,endRow:42},
+  2:{nameCol:"H",mealCol:"I",startRow:31,endRow:42},
+  3:{nameCol:"K",mealCol:"L",startRow:31,endRow:42},
+  4:{nameCol:"N",mealCol:"O",startRow:31,endRow:42},
 
   5:{nameCol:"E",mealCol:"F",startRow:45,endRow:56},
   6:{nameCol:"H",mealCol:"I",startRow:45,endRow:56},
