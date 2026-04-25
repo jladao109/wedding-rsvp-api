@@ -93,6 +93,43 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "Missing SEATING_OUTPUT_SPREADSHEET_ID" });
     }
 
+    if (req.body?.mode === "printSpreadsheet") {
+      const sheets = await getSheetsClient();
+    
+      const meta = await sheets.spreadsheets.get({ spreadsheetId });
+    
+      const sheet = meta.data.sheets?.find(
+        (s) => s.properties?.title === TAB
+      );
+    
+      if (!sheet) {
+        return res.status(404).json({ error: `Tab not found: ${TAB}` });
+      }
+    
+      const gid = sheet.properties.sheetId;
+    
+      const params = new URLSearchParams({
+        format: "pdf",
+        gid: String(gid),
+        size: "7",
+        portrait: "false",
+        fitw: "true",
+        sheetnames: "false",
+        printtitle: "false",
+        pagenumbers: "false",
+        gridlines: "false",
+        fzr: "false",
+        top_margin: "0.25",
+        bottom_margin: "0.25",
+        left_margin: "0.25",
+        right_margin: "0.25",
+      });
+    
+      const url = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?${params.toString()}`;
+    
+      return res.json({ ok: true, url });
+    }
+
     const guests = Array.isArray(req.body?.guests) ? req.body.guests : [];
 
     const sheets = await getSheetsClient();
