@@ -10,6 +10,8 @@ import {
   isValidPhone,
   normalizePhone,
   normLower,
+  getSheetsClient,
+  SCHEDULED_COMM_TAB,
 } from "./_comm-helpers.js";
 
 function getTwilioClient() {
@@ -138,6 +140,59 @@ function getSmsFilteredOutReasons(rows, payload) {
   return filteredOut;
 }
 
+function makeScheduleId() {
+  return `SMS-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+}
+
+function parseScheduledRow(row, index) {
+  return {
+    sheetRowNumber: index + 2,
+    id: row[0] || "",
+    type: row[1] || "",
+    status: row[2] || "",
+    sendAt: row[3] || "",
+    subject: row[4] || "",
+    message: row[5] || "",
+    audienceJSON: row[6] || "",
+    createdAt: row[7] || "",
+    sentAt: row[8] || "",
+    notes: row[9] || "",
+  };
+}
+
+async function readScheduledRows() {
+  const sheets = await getSheetsClient();
+
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.SPREADSHEET_ID,
+    range: `${SCHEDULED_COMM_TAB}!A2:J`,
+  });
+
+  return (response.data.values || []).map(parseScheduledRow);
+}
+
+async function updateScheduledStatus({ scheduled, status, sentAt = "", notes = "" }) {
+  const sheets = await getSheetsClient();
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: process.env.SPREADSHEET_ID,
+    range: `${SCHEDULED_COMM_TAB}!C${scheduled.sheetRowNumber}:J${scheduled.sheetRowNumber}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [[
+        status,
+        scheduled.sendAt,
+        scheduled.subject,
+        scheduled.message,
+        scheduled.audienceJSON,
+        scheduled.createdAt,
+        sentAt || scheduled.sentAt || "",
+        notes || scheduled.notes || "",
+      ]],
+    },
+  });
+}
+
 export default async function handler(req, res) {
   setCors(req, res);
 
@@ -159,6 +214,243 @@ export default async function handler(req, res) {
         count: recipients.length,
         recipients,
         filteredOut,
+      });
+    }
+
+    if (action === "schedule") {
+      const body = validateSmsBody(message);
+      const sendAt = String(req.body?.sendAt || "").trim();
+    
+      if (!sendAt) {
+        return res.status(400).json({ error: "Scheduled send time is required." });
+      }
+    
+      const sendAtDate = new Date(sendAt);
+      if (Number.isNaN(sendAtDate.getTime())) {
+        return res.status(400).json({ error: "Scheduled send time is invalid." });
+      }
+    
+      if (sendAtDate.getTime() <= Date.now()) {
+        return res.status(400).json({ error: "Scheduled send time must be in the future." });
+      }
+    
+      const rows = await readGuestRows();
+      const recipients = getSmsRecipients(rows, req.body || {});
+    
+      if (!recipients.length) {
+        return res.status(400).json({ error: "No eligible SMS recipients found for this schedule." });
+      }
+    
+      const id = makeScheduleId();
+      const createdAt = new Date().toISOString();
+    
+      const audience = {
+        includeAudiences: req.body?.includeAudiences || [],
+        excludeAudiences: req.body?.excludeAudiences || [],
+        includePartyIds: req.body?.includePartyIds || [],
+        includeRowNumbers: req.body?.includeRowNumbers || [],
+        excludePartyIds: req.body?.excludePartyIds || [],
+        excludeRowNumbers: req.body?.excludeRowNumbers || [],
+      };
+    
+      const sheets = await getSheetsClient();
+    
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: process.env.SPREADSHEET_ID,
+        range: `${SCHEDULED_COMM_TAB}!A:J`,
+        valueInputOption: "USER_ENTERED",
+        insertDataOption: "INSERT_ROWS",
+        requestBody: {
+          values: [[
+            id,
+            "SMS",
+            "PENDING",
+            sendAtDate.toISOString(),
+            "SMS Send",
+            body,
+            JSON.stringify(audience),
+            createdAt,
+            "",
+            `Scheduled for ${recipients.length} recipient(s).`,
+          ]],
+        },
+      });
+    
+      await appendCommLog({
+        channel: "SMS",
+        audience,
+        subject: "Scheduled SMS",
+        count: recipients.length,
+        status: "SCHEDULED",
+        notes: id,
+      });
+    
+      return res.json({
+        ok: true,
+        id,
+        status: "PENDING",
+        sendAt: sendAtDate.toISOString(),
+        count: recipients.length,
+      });
+    }
+    
+    if (action === "listScheduled") {
+      const scheduled = await readScheduledRows();
+    
+      return res.json({
+        ok: true,
+        scheduled: scheduled
+          .filter((item) => item.id)
+          .reverse(),
+      });
+    }
+    
+    if (action === "cancelScheduled") {
+      const id = String(req.body?.id || "").trim();
+    
+      if (!id) {
+        return res.status(400).json({ error: "Scheduled message ID is required." });
+      }
+    
+      const scheduledRows = await readScheduledRows();
+      const scheduled = scheduledRows.find((item) => item.id === id);
+    
+      if (!scheduled) {
+        return res.status(404).json({ error: "Scheduled message not found." });
+      }
+    
+      if (scheduled.status !== "PENDING") {
+        return res.status(400).json({ error: `Only PENDING messages can be cancelled. Current status: ${scheduled.status}` });
+      }
+    
+      await updateScheduledStatus({
+        scheduled,
+        status: "CANCELLED",
+        sentAt: "",
+        notes: "Cancelled manually.",
+      });
+    
+      await appendCommLog({
+        channel: "SMS",
+        audience: scheduled.audienceJSON,
+        subject: "Scheduled SMS",
+        count: 0,
+        status: "CANCELLED",
+        notes: id,
+      });
+    
+      return res.json({
+        ok: true,
+        id,
+        status: "CANCELLED",
+      });
+    }
+    
+    if (action === "runScheduled") {
+      const scheduledRows = await readScheduledRows();
+      const now = Date.now();
+    
+      const due = scheduledRows.filter((item) => {
+        if (item.type !== "SMS") return false;
+        if (item.status !== "PENDING") return false;
+    
+        const sendTime = new Date(item.sendAt).getTime();
+        return Number.isFinite(sendTime) && sendTime <= now;
+      });
+    
+      const results = [];
+    
+      for (const scheduled of due) {
+        try {
+          await updateScheduledStatus({
+            scheduled,
+            status: "PROCESSING",
+            sentAt: "",
+            notes: "Processing scheduled SMS.",
+          });
+    
+          const audience = JSON.parse(scheduled.audienceJSON || "{}");
+          const rows = await readGuestRows();
+          const recipients = getSmsRecipients(rows, audience);
+    
+          if (!recipients.length) {
+            await updateScheduledStatus({
+              scheduled,
+              status: "FAILED",
+              sentAt: new Date().toISOString(),
+              notes: "No eligible SMS recipients found at send time.",
+            });
+    
+            results.push({
+              id: scheduled.id,
+              status: "FAILED",
+              sent: 0,
+              failed: 0,
+              notes: "No eligible recipients.",
+            });
+    
+            continue;
+          }
+    
+          const body = validateSmsBody(scheduled.message);
+    
+          const settled = await sendInChunks(
+            recipients,
+            5,
+            recipient => sendOneSms({
+              to: recipient.phone,
+              body,
+            })
+          );
+    
+          const sent = settled.filter(r => r.status === "fulfilled").length;
+          const failed = settled.filter(r => r.status === "rejected").length;
+    
+          await updateScheduledStatus({
+            scheduled,
+            status: failed ? "PARTIAL" : "SENT",
+            sentAt: new Date().toISOString(),
+            notes: `Sent: ${sent}. Failed: ${failed}.`,
+          });
+    
+          await appendCommLog({
+            channel: "SMS",
+            audience,
+            subject: "Scheduled SMS",
+            count: sent,
+            status: failed ? "PARTIAL" : "SENT",
+            notes: scheduled.id,
+          });
+    
+          results.push({
+            id: scheduled.id,
+            status: failed ? "PARTIAL" : "SENT",
+            sent,
+            failed,
+          });
+        } catch (err) {
+          await updateScheduledStatus({
+            scheduled,
+            status: "FAILED",
+            sentAt: new Date().toISOString(),
+            notes: err?.message || String(err),
+          });
+    
+          results.push({
+            id: scheduled.id,
+            status: "FAILED",
+            sent: 0,
+            failed: 0,
+            error: err?.message || String(err),
+          });
+        }
+      }
+    
+      return res.json({
+        ok: true,
+        checked: scheduledRows.length,
+        due: due.length,
+        results,
       });
     }
 
