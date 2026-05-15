@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/comm-sms?action=runScheduled",
+      "schedule": "0 * * * *"
+    }
+  ]
+}
