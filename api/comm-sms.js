@@ -6,6 +6,10 @@ import {
   readGuestRows,
   getSmsRecipients,
   appendCommLog,
+  filterAudience,
+  isValidPhone,
+  normalizePhone,
+  normLower,
 } from "./_comm-helpers.js";
 
 function getTwilioClient() {
@@ -74,6 +78,66 @@ async function sendInChunks(items, chunkSize, fn) {
   return results;
 }
 
+function getSmsFilteredOutReasons(rows, payload) {
+  const audienceRows = filterAudience(rows, payload || {});
+  const audienceRowKeys = new Set(
+    audienceRows.map((r) => `${r.rowNumber}|${normLower(r.partyId)}`)
+  );
+
+  const seenPhones = new Set();
+  const filteredOut = [];
+
+  rows.forEach((row) => {
+    const rowKey = `${row.rowNumber}|${normLower(row.partyId)}`;
+
+    if (!audienceRowKeys.has(rowKey)) {
+      filteredOut.push({
+        rowNumber: row.rowNumber,
+        partyId: row.partyId,
+        phone: row.phone || "",
+        reason: "Did not match selected include audiences or manual includes, or matched an exclude rule.",
+      });
+      return;
+    }
+
+    if (row.rsvp !== "Y") {
+      filteredOut.push({
+        rowNumber: row.rowNumber,
+        partyId: row.partyId,
+        phone: row.phone || "",
+        reason: `RSVP is "${row.rsvp || "blank"}" instead of "Y".`,
+      });
+      return;
+    }
+
+    if (!isValidPhone(row.phone)) {
+      filteredOut.push({
+        rowNumber: row.rowNumber,
+        partyId: row.partyId,
+        phone: row.phone || "",
+        reason: "Missing or invalid phone number.",
+      });
+      return;
+    }
+
+    const phone = normalizePhone(row.phone);
+
+    if (seenPhones.has(phone)) {
+      filteredOut.push({
+        rowNumber: row.rowNumber,
+        partyId: row.partyId,
+        phone,
+        reason: "Duplicate phone number already included earlier in the preview.",
+      });
+      return;
+    }
+
+    seenPhones.add(phone);
+  });
+
+  return filteredOut;
+}
+
 export default async function handler(req, res) {
   setCors(req, res);
 
@@ -88,11 +152,13 @@ export default async function handler(req, res) {
     if (action === "preview") {
       const rows = await readGuestRows();
       const recipients = getSmsRecipients(rows, req.body || {});
-
+      const filteredOut = getSmsFilteredOutReasons(rows, req.body || {});
+    
       return res.json({
         ok: true,
         count: recipients.length,
         recipients,
+        filteredOut,
       });
     }
 
