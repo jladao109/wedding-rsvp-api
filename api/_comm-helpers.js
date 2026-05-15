@@ -384,3 +384,46 @@ export function buildStarterEmailHtml() {
 </html>
   `.trim();
 }
+
+export function isValidPhone(phone) {
+  const digits = String(phone || "").replace(/\D/g, "");
+  return digits.length === 10 || (digits.length === 11 && digits.startsWith("1"));
+}
+
+export function normalizePhone(phone) {
+  const digits = String(phone || "").replace(/\D/g, "");
+
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+
+  return "";
+}
+
+export function getSmsRecipients(rows, audienceConfig) {
+  const filtered = filterAudience(rows, audienceConfig)
+    .filter(r => r.rsvp === "Y")
+    .filter(r => isValidPhone(r.phone));
+
+  const seen = new Set();
+  const deduped = [];
+
+  for (const row of filtered) {
+    const phone = normalizePhone(row.phone);
+    if (!phone || seen.has(phone)) continue;
+
+    seen.add(phone);
+
+    deduped.push({
+      rowNumber: row.rowNumber,
+      partyId: row.partyId,
+      phone,
+      rawPhone: row.phone,
+      entourageGroup: row.entourageGroup,
+      rehearsalDinner: row.rehearsalDinner === true,
+      hotelGuest: row.hotelGuest === true,
+      countComing: row.countComing,
+    });
+  }
+
+  return deduped;
+}
