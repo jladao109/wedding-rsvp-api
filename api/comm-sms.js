@@ -196,12 +196,21 @@ async function updateScheduledStatus({ scheduled, status, sentAt = "", notes = "
 export default async function handler(req, res) {
   setCors(req, res);
 
-  const action = String(req.body?.action || req.query?.action || "").trim();
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
 
-  if (action === "runScheduled") {
+  const action = String(req.body?.action || req.query?.action || "").trim();
+  const isCronRun = action === "runScheduled";
+
+  if (req.method !== "POST" && !(isCronRun && req.method === "GET")) {
+    return res.status(405).json({ error: "Use POST" });
+  }
+
+  if (isCronRun) {
     const authHeader = req.headers.authorization || "";
     const expected = process.env.CRON_SECRET;
-  
+
     if (!expected || authHeader !== `Bearer ${expected}`) {
       return res.status(401).json({ error: "Unauthorized cron request" });
     }
