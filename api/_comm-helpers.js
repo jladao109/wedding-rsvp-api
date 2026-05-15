@@ -2,6 +2,8 @@ import { google } from "googleapis";
 
 export const TAB_NAME = "Guests";
 export const COMM_LOG_TAB = process.env.COMM_LOG_TAB || "Comm Log";
+export const SCHEDULED_COMM_TAB =
+  process.env.SCHEDULED_COMM_TAB || "Scheduled Communications";
 
 export function norm(s) {
   return String(s ?? "").trim();
