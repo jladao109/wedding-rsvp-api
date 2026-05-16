@@ -154,6 +154,7 @@ export async function readGuestRows() {
       hotelGuest: isChecked(row[14]),
       postWeddingLunchInvitee: isChecked(row[15]), // Column P
       confirmedRehearsalDinner: hasConfirmedNames(row[16]), // Column Q
+      rehearsalDinnerDeclined: norm(row[16]).toUpperCase() === "N", // Column Q
       confirmedPostWeddingLunch: hasConfirmedNames(row[17]), // Column R
       postWeddingLunchDeclined: norm(row[17]).toUpperCase() === "N", // Column R
     };
@@ -181,7 +182,10 @@ function audienceMatch(row, audience) {
   if (a === "sponsors") {
     return group === "sponsors" || group === GROOMSMAN_AND_SPONSOR;
   }
-  if (a === "rehearsal") return row.rehearsalDinner === true;
+  if (a === "rehearsal") {
+    return row.rehearsalDinner === true &&
+           row.rehearsalDinnerDeclined !== true;
+  }
   if (a === "hotel") return row.hotelGuest === true;
   if (a === "confirmedrehearsal") return row.confirmedRehearsalDinner === true;
   if (a === "postweddinglunchinvitees") {
