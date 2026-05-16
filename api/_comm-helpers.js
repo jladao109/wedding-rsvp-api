@@ -125,7 +125,7 @@ export async function readGuestRows() {
 
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.SPREADSHEET_ID,
-    range: `${TAB_NAME}!A2:R`,
+    range: `${TAB_NAME}!A2:S`,
   });
 
   const rows = response.data.values || [];
@@ -157,6 +157,8 @@ export async function readGuestRows() {
       rehearsalDinnerDeclined: norm(row[16]).toUpperCase() === "N", // Column Q
       confirmedPostWeddingLunch: hasConfirmedNames(row[17]), // Column R
       postWeddingLunchDeclined: norm(row[17]).toUpperCase() === "N", // Column R
+      smsOptOutRaw: norm(row[18]), // Column S
+      smsOptOut: isChecked(row[18]),
     };
   });
 }
@@ -424,6 +426,7 @@ export function normalizePhone(phone) {
 export function getSmsRecipients(rows, audienceConfig) {
   const filtered = filterAudience(rows, audienceConfig)
     .filter(r => r.rsvp === "Y")
+    .filter(r => r.smsOptOut !== true)
     .filter(r => isValidPhone(r.phone));
 
   const seen = new Set();
