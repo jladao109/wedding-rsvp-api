@@ -155,6 +155,7 @@ export async function readGuestRows() {
       postWeddingLunchInvitee: isChecked(row[15]), // Column P
       confirmedRehearsalDinner: hasConfirmedNames(row[16]), // Column Q
       confirmedPostWeddingLunch: hasConfirmedNames(row[17]), // Column R
+      postWeddingLunchDeclined: norm(row[17]).toUpperCase() === "N", // Column R
     };
   });
 }
@@ -183,7 +184,9 @@ function audienceMatch(row, audience) {
   if (a === "rehearsal") return row.rehearsalDinner === true;
   if (a === "hotel") return row.hotelGuest === true;
   if (a === "confirmedrehearsal") return row.confirmedRehearsalDinner === true;
-  if (a === "postweddinglunchinvitees") return row.postWeddingLunchInvitee === true;
+  if (a === "postweddinglunchinvitees") {
+    return row.postWeddingLunchInvitee === true && row.postWeddingLunchDeclined !== true;
+  }
   if (a === "confirmedpostweddinglunch") return row.confirmedPostWeddingLunch === true;
   
     return false;
