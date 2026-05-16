@@ -44,6 +44,13 @@ function normalizePartyIdList(input) {
     .filter(Boolean);
 }
 
+function hasConfirmedNames(value) {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  if (text.toUpperCase() === "N") return false;
+  return true;
+}
+
 function normalizeRowNumberList(input) {
   let values = [];
 
@@ -118,7 +125,7 @@ export async function readGuestRows() {
 
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.SPREADSHEET_ID,
-    range: `${TAB_NAME}!A2:O`,
+    range: `${TAB_NAME}!A2:R`,
   });
 
   const rows = response.data.values || [];
@@ -145,6 +152,9 @@ export async function readGuestRows() {
       rehearsalDinner: isChecked(row[13]),
       hotelGuestRaw: norm(row[14]),      // O
       hotelGuest: isChecked(row[14]),
+      postWeddingLunchInvitee: isChecked(row[15]), // Column P
+      confirmedRehearsalDinner: hasConfirmedNames(row[16]), // Column Q
+      confirmedPostWeddingLunch: hasConfirmedNames(row[17]), // Column R
     };
   });
 }
@@ -172,6 +182,9 @@ function audienceMatch(row, audience) {
   }
   if (a === "rehearsal") return row.rehearsalDinner === true;
   if (a === "hotel") return row.hotelGuest === true;
+  if (a === "confirmedrehearsal") return row.confirmedRehearsalDinner === true;
+  if (a === "postweddinglunchinvitees") return row.postWeddingLunchInvitee === true;
+  if (a === "confirmedpostweddinglunch") return row.confirmedPostWeddingLunch === true;
   
     return false;
   }
