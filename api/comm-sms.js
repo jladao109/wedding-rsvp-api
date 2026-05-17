@@ -112,6 +112,16 @@ function getSmsFilteredOutReasons(rows, payload) {
       return;
     }
 
+    if (row.smsOptOut === true) {
+      filteredOut.push({
+        rowNumber: row.rowNumber,
+        partyId: row.partyId,
+        phone: row.phone || "",
+        reason: "SMS opt-out is marked in Column S.",
+      });
+      return;
+    }
+
     if (!isValidPhone(row.phone)) {
       filteredOut.push({
         rowNumber: row.rowNumber,
