@@ -1,5 +1,3 @@
-import { twiml } from "twilio";
-
 import {
   getSheetsClient,
   TAB_NAME,
@@ -100,9 +98,8 @@ export default async function handler(req, res) {
       });
     }
 
-    const response = new twiml.MessagingResponse();
     res.setHeader("Content-Type", "text/xml");
-    return res.status(200).send(response.toString());
+    return res.status(200).send(`<?xml version="1.0" encoding="UTF-8"?><Response></Response>`);
   } catch (err) {
     console.error("TWILIO INBOUND ERROR:", err);
     return res.status(500).send("Server error");
