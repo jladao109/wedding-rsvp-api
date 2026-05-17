@@ -135,19 +135,51 @@ function getSmsFilteredOutReasons(rows, payload) {
       return;
     }
 
-    const phone = normalizePhone(row.phone);
+    const phones = getNormalizedPhoneList(row.phone);
 
-    if (seenPhones.has(phone)) {
+    if (!phones.length) {
       filteredOut.push({
         rowNumber: row.rowNumber,
         partyId: row.partyId,
-        phone,
-        reason: "Duplicate phone number already included earlier in the preview.",
+        phone: row.phone || "",
+        reason: "Missing or invalid phone number.",
       });
       return;
     }
-
-    seenPhones.add(phone);
+    
+    if (isWholeRowSmsOptedOut(row.smsOptOutRaw)) {
+      filteredOut.push({
+        rowNumber: row.rowNumber,
+        partyId: row.partyId,
+        phone: row.phone || "",
+        reason: "Entire row is opted out of SMS in Column S.",
+      });
+      return;
+    }
+    
+    phones.forEach((phone) => {
+      if (isPhoneOptedOutForRow(row, phone)) {
+        filteredOut.push({
+          rowNumber: row.rowNumber,
+          partyId: row.partyId,
+          phone,
+          reason: "This phone number is opted out in Column S.",
+        });
+        return;
+      }
+    
+      if (seenPhones.has(phone)) {
+        filteredOut.push({
+          rowNumber: row.rowNumber,
+          partyId: row.partyId,
+          phone,
+          reason: "Duplicate phone number already included earlier in the preview.",
+        });
+        return;
+      }
+    
+      seenPhones.add(phone);
+    });
   });
 
   return filteredOut;
