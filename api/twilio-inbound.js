@@ -56,16 +56,13 @@ async function updateSmsOptOutByPhone({ fromPhone, shouldOptOut }) {
     const rowNumber = idx + 2;
 
     const phonesInRow = getNormalizedPhoneList(row[10]); // Column K
-    const smsOptOutRaw = row[18] || ""; // Column S
-
     if (!phonesInRow.includes(normalizedFrom)) return;
 
-    // If Column S is currently whole-row opted out as Y/YES/TRUE/etc.
-    // preserve that if this is STOP, but convert to a phone list if START.
-    if (isWholeRowSmsOptedOut(smsOptOutRaw)) {
-      if (shouldOptOut) {
-        return;
-      }
+    const currentOptOutRaw = row[18] || ""; // Column S
+    const optedOutPhones = new Set(getNormalizedPhoneList(currentOptOutRaw));
+
+    if (isWholeRowSmsOptedOut(currentOptOutRaw)) {
+      if (shouldOptOut) return;
 
       updates.push({
         range: `${TAB_NAME}!S${rowNumber}`,
@@ -73,8 +70,6 @@ async function updateSmsOptOutByPhone({ fromPhone, shouldOptOut }) {
       });
       return;
     }
-
-    const optedOutPhones = new Set(getNormalizedPhoneList(smsOptOutRaw));
 
     if (shouldOptOut) {
       optedOutPhones.add(normalizedFrom);
