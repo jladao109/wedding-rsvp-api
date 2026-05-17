@@ -7,8 +7,6 @@ import {
   getSmsRecipients,
   appendCommLog,
   filterAudience,
-  isValidPhone,
-  normalizePhone,
   getNormalizedPhoneList,
   isPhoneOptedOutForRow,
   isWholeRowSmsOptedOut,
