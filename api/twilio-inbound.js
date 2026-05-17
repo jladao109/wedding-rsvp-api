@@ -33,6 +33,7 @@ function isStart(body, optOutType) {
 function formatPhoneListForSheet(phoneSet) {
   return Array.from(phoneSet)
     .filter(Boolean)
+    .map(phone => phone.replace(/^\+/, ""))
     .join("; ");
 }
 
