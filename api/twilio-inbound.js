@@ -2,6 +2,8 @@ import {
   getSheetsClient,
   TAB_NAME,
   normalizePhone,
+  getNormalizedPhoneList,
+  isWholeRowSmsOptedOut,
   norm,
 } from "./_comm-helpers.js";
 
@@ -28,9 +30,19 @@ function isStart(body, optOutType) {
     ["START", "YES", "UNSTOP"].includes(text);
 }
 
+function formatPhoneListForSheet(phoneSet) {
+  return Array.from(phoneSet)
+    .filter(Boolean)
+    .join("; ");
+}
+
 async function updateSmsOptOutByPhone({ fromPhone, shouldOptOut }) {
   const sheets = await getSheetsClient();
   const normalizedFrom = normalizePhone(fromPhone);
+
+  if (!normalizedFrom) {
+    return { matched: 0, updated: 0, reason: "Invalid sender phone." };
+  }
 
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.SPREADSHEET_ID,
@@ -42,14 +54,38 @@ async function updateSmsOptOutByPhone({ fromPhone, shouldOptOut }) {
 
   rows.forEach((row, idx) => {
     const rowNumber = idx + 2;
-    const sheetPhone = normalizePhone(row[10]); // Column K
 
-    if (sheetPhone && sheetPhone === normalizedFrom) {
+    const phonesInRow = getNormalizedPhoneList(row[10]); // Column K
+    const smsOptOutRaw = row[18] || ""; // Column S
+
+    if (!phonesInRow.includes(normalizedFrom)) return;
+
+    // If Column S is currently whole-row opted out as Y/YES/TRUE/etc.
+    // preserve that if this is STOP, but convert to a phone list if START.
+    if (isWholeRowSmsOptedOut(smsOptOutRaw)) {
+      if (shouldOptOut) {
+        return;
+      }
+
       updates.push({
         range: `${TAB_NAME}!S${rowNumber}`,
-        values: [[shouldOptOut ? "Y" : ""]],
+        values: [[""]],
       });
+      return;
     }
+
+    const optedOutPhones = new Set(getNormalizedPhoneList(smsOptOutRaw));
+
+    if (shouldOptOut) {
+      optedOutPhones.add(normalizedFrom);
+    } else {
+      optedOutPhones.delete(normalizedFrom);
+    }
+
+    updates.push({
+      range: `${TAB_NAME}!S${rowNumber}`,
+      values: [[formatPhoneListForSheet(optedOutPhones)]],
+    });
   });
 
   if (!updates.length) {
