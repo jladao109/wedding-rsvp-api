@@ -423,6 +423,40 @@ export function normalizePhone(phone) {
   return "";
 }
 
+export function splitPhoneList(value) {
+  return String(value || "")
+    .split(/[;,]+/)
+    .map(v => v.trim())
+    .filter(Boolean);
+}
+
+export function getNormalizedPhoneList(value) {
+  return splitPhoneList(value)
+    .map(normalizePhone)
+    .filter(Boolean);
+}
+
+export function isWholeRowSmsOptedOut(value) {
+  const v = normLower(value);
+  return v === "y" || v === "yes" || v === "true" || v === "checked" || v === "1";
+}
+
+export function getSmsOptOutPhoneSet(value) {
+  if (isWholeRowSmsOptedOut(value)) {
+    return null; // null means full row opted out
+  }
+
+  return new Set(getNormalizedPhoneList(value));
+}
+
+export function isPhoneOptedOutForRow(row, normalizedPhone) {
+  const optOutSet = getSmsOptOutPhoneSet(row.smsOptOutRaw);
+
+  if (optOutSet === null) return true;
+
+  return optOutSet.has(normalizedPhone);
+}
+
 export function getSmsRecipients(rows, audienceConfig) {
   const filtered = filterAudience(rows, audienceConfig)
     .filter(r => r.rsvp === "Y")
