@@ -77,6 +77,11 @@ export default async function handler(req, res) {
   try {
     const data = parseBody(req);
 
+    console.log(
+      "TWILIO INBOUND DATA:",
+      JSON.stringify(data, null, 2)
+    );
+
     const from = data.From || "";
     const body = data.Body || "";
     const optOutType = data.OptOutType || "";
