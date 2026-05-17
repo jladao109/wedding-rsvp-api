@@ -459,29 +459,32 @@ export function isPhoneOptedOutForRow(row, normalizedPhone) {
 
 export function getSmsRecipients(rows, audienceConfig) {
   const filtered = filterAudience(rows, audienceConfig)
-    .filter(r => r.rsvp === "Y")
-    .filter(r => r.smsOptOut !== true)
-    .filter(r => isValidPhone(r.phone));
+    .filter(r => r.rsvp === "Y");
 
   const seen = new Set();
   const deduped = [];
 
   for (const row of filtered) {
-    const phone = normalizePhone(row.phone);
-    if (!phone || seen.has(phone)) continue;
+    const phones = getNormalizedPhoneList(row.phone);
 
-    seen.add(phone);
+    for (const phone of phones) {
+      if (!phone) continue;
+      if (seen.has(phone)) continue;
+      if (isPhoneOptedOutForRow(row, phone)) continue;
 
-    deduped.push({
-      rowNumber: row.rowNumber,
-      partyId: row.partyId,
-      phone,
-      rawPhone: row.phone,
-      entourageGroup: row.entourageGroup,
-      rehearsalDinner: row.rehearsalDinner === true,
-      hotelGuest: row.hotelGuest === true,
-      countComing: row.countComing,
-    });
+      seen.add(phone);
+
+      deduped.push({
+        rowNumber: row.rowNumber,
+        partyId: row.partyId,
+        phone,
+        rawPhone: row.phone,
+        entourageGroup: row.entourageGroup,
+        rehearsalDinner: row.rehearsalDinner === true,
+        hotelGuest: row.hotelGuest === true,
+        countComing: row.countComing,
+      });
+    }
   }
 
   return deduped;
