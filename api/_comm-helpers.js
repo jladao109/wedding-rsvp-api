@@ -561,6 +561,17 @@ export function getNormalizedPhoneList(value) {
     .filter(Boolean);
 }
 
+function normalizePhoneListInput(input) {
+  if (Array.isArray(input)) {
+    return input
+      .flatMap(splitPhoneList)
+      .map(normalizePhone)
+      .filter(Boolean);
+  }
+
+  return getNormalizedPhoneList(input);
+}
+
 export function isWholeRowSmsOptedOut(value) {
   const v = normLower(value);
   return v === "y" || v === "yes" || v === "true" || v === "checked" || v === "1";
@@ -586,6 +597,14 @@ export function getSmsRecipients(rows, audienceConfig) {
   const filtered = filterAudience(rows, audienceConfig)
     .filter(r => r.rsvp === "Y");
 
+  const includeSmsPhones = new Set(
+    normalizePhoneListInput(audienceConfig?.includeSmsPhones || [])
+  );
+
+  const excludeSmsPhones = new Set(
+    normalizePhoneListInput(audienceConfig?.excludeSmsPhones || [])
+  );
+
   const seen = new Set();
   const deduped = [];
 
@@ -595,6 +614,7 @@ export function getSmsRecipients(rows, audienceConfig) {
     for (const phone of phones) {
       if (!phone) continue;
       if (seen.has(phone)) continue;
+      if (excludeSmsPhones.has(phone)) continue;
       if (isPhoneOptedOutForRow(row, phone)) continue;
 
       seen.add(phone);
@@ -608,6 +628,56 @@ export function getSmsRecipients(rows, audienceConfig) {
         rehearsalDinner: row.rehearsalDinner === true,
         hotelGuest: row.hotelGuest === true,
         countComing: row.countComing,
+      });
+    }
+  }
+
+  // Force-include SMS phones, even if they are not in selected audience rows.
+  for (const phone of includeSmsPhones) {
+    if (!phone) continue;
+    if (seen.has(phone)) continue;
+    if (excludeSmsPhones.has(phone)) continue;
+
+    let matchedRow = null;
+
+    for (const row of rows) {
+      const rowPhones = getNormalizedPhoneList(row.phone);
+      if (rowPhones.includes(phone)) {
+        matchedRow = row;
+        break;
+      }
+    }
+
+    if (matchedRow) {
+      if (matchedRow.rsvp !== "Y") continue;
+      if (isPhoneOptedOutForRow(matchedRow, phone)) continue;
+
+      seen.add(phone);
+
+      deduped.push({
+        rowNumber: matchedRow.rowNumber,
+        partyId: matchedRow.partyId,
+        phone,
+        rawPhone: matchedRow.phone,
+        entourageGroup: matchedRow.entourageGroup,
+        rehearsalDinner: matchedRow.rehearsalDinner === true,
+        hotelGuest: matchedRow.hotelGuest === true,
+        countComing: matchedRow.countComing,
+        manuallyIncludedPhone: true,
+      });
+    } else {
+      seen.add(phone);
+
+      deduped.push({
+        rowNumber: "",
+        partyId: "",
+        phone,
+        rawPhone: phone,
+        entourageGroup: "",
+        rehearsalDinner: false,
+        hotelGuest: false,
+        countComing: "",
+        manuallyIncludedPhone: true,
       });
     }
   }
