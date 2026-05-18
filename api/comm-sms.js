@@ -253,6 +253,15 @@ async function readCommHistoryRows() {
   return (response.data.values || []).map(parseCommHistoryRow);
 }
 
+function makeRetryDedupeKey(item) {
+  return [
+    String(item.channel).toUpperCase(),
+    String(item.direction).toUpperCase(),
+    String(item.recipient || "").trim(),
+    String(item.message || "").trim(),
+  ].join("|");
+}
+
 function getRetryReference(historyItem) {
   return historyItem.messageSid || `HistoryRow:${historyItem.sheetRowNumber}`;
 }
@@ -593,12 +602,33 @@ export default async function handler(req, res) {
     if (action === "retryFailedSms") {
       const historyRows = await readCommHistoryRows();
     
+      const successfulSmsKeys = new Set(
+        historyRows
+          .filter((item) => {
+            const status = String(item.status).toUpperCase();
+      
+            return (
+              String(item.channel).toUpperCase() === "SMS" &&
+              String(item.direction).toUpperCase() === "OUTBOUND" &&
+              ["SENT", "DELIVERED"].includes(status) &&
+              item.recipient &&
+              item.message
+            );
+          })
+          .map(makeRetryDedupeKey)
+      );
+      
       const failedRows = historyRows.filter((item) => {
         if (String(item.channel).toUpperCase() !== "SMS") return false;
         if (String(item.direction).toUpperCase() !== "OUTBOUND") return false;
         if (String(item.status).toUpperCase() !== "FAILED") return false;
         if (!item.recipient) return false;
         if (!item.message) return false;
+      
+        if (successfulSmsKeys.has(makeRetryDedupeKey(item))) {
+          return false;
+        }
+      
         return true;
       });
     
