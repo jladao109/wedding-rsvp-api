@@ -6,6 +6,8 @@ import {
   readGuestRows,
   getSmsRecipients,
   appendCommLog,
+  appendCommHistory,
+  updateLastContacted,
   filterAudience,
   getNormalizedPhoneList,
   isPhoneOptedOutForRow,
@@ -214,6 +216,42 @@ async function updateScheduledStatus({ scheduled, status, sentAt = "", notes = "
       ]],
     },
   });
+}
+
+async function recordSmsResult({
+  recipient,
+  body,
+  result,
+  status,
+  error = "",
+  subject = "SMS",
+  eventType = "SMS_SEND",
+  scheduledId = "",
+}) {
+  const timestamp = new Date().toISOString();
+
+  await appendCommHistory({
+    channel: "SMS",
+    direction: "OUTBOUND",
+    partyId: recipient?.partyId || "",
+    rowNumber: recipient?.rowNumber || "",
+    recipient: recipient?.phone || "",
+    messageSid: result?.sid || "",
+    subject,
+    message: body || "",
+    status,
+    eventType,
+    scheduledId,
+    notes: error || "",
+  });
+
+  if (status === "SENT" && recipient?.rowNumber) {
+    await updateLastContacted({
+      rowNumber: recipient?.rowNumber,
+      channel: "SMS",
+      timestamp,
+    });
+  }
 }
 
 export default async function handler(req, res) {
@@ -443,6 +481,22 @@ export default async function handler(req, res) {
               body,
             })
           );
+
+          for (let i = 0; i < settled.length; i++) {
+            const r = settled[i];
+            const recipient = recipients[i];
+          
+            await recordSmsResult({
+              recipient,
+              body,
+              result: r.status === "fulfilled" ? r.value : null,
+              status: r.status === "fulfilled" ? "SENT" : "FAILED",
+              error: r.status === "rejected" ? (r.reason?.message || String(r.reason)) : "",
+              subject: "Scheduled SMS",
+              eventType: "SMS_SCHEDULED_SEND",
+              scheduledId: scheduled.id,
+            });
+          }
     
           const sent = settled.filter(r => r.status === "fulfilled").length;
           const failed = settled.filter(r => r.status === "rejected").length;
@@ -508,6 +562,21 @@ export default async function handler(req, res) {
         body: `[TEST] ${body}`,
       });
 
+      await appendCommHistory({
+        channel: "SMS",
+        direction: "OUTBOUND",
+        partyId: "",
+        rowNumber: "",
+        recipient: testPhone,
+        messageSid: result.sid,
+        subject: "Test SMS",
+        message: `[TEST] ${body}`,
+        status: "TEST SENT",
+        eventType: "SMS_TEST",
+        scheduledId: "",
+        notes: "",
+      });
+
       await appendCommLog({
         channel: "SMS",
         audience: { testMode: true, testPhone },
@@ -545,13 +614,33 @@ export default async function handler(req, res) {
         })
       );
 
-      const results = settled.map((r, i) => ({
-        phone: recipients[i].phone,
-        partyId: recipients[i].partyId,
-        status: r.status,
-        sid: r.status === "fulfilled" ? r.value.sid : null,
-        error: r.status === "rejected" ? (r.reason?.message || String(r.reason)) : null,
-      }));
+      const results = [];
+
+      for (let i = 0; i < settled.length; i++) {
+        const r = settled[i];
+        const recipient = recipients[i];
+      
+        const item = {
+          phone: recipient.phone,
+          partyId: recipient.partyId,
+          rowNumber: recipient.rowNumber,
+          status: r.status,
+          sid: r.status === "fulfilled" ? r.value.sid : null,
+          error: r.status === "rejected" ? (r.reason?.message || String(r.reason)) : null,
+        };
+      
+        results.push(item);
+      
+        await recordSmsResult({
+          recipient,
+          body,
+          result: r.status === "fulfilled" ? r.value : null,
+          status: r.status === "fulfilled" ? "SENT" : "FAILED",
+          error: item.error || "",
+          subject: "SMS Send",
+          eventType: "SMS_SEND",
+        });
+      }
 
       const sent = results.filter(r => r.status === "fulfilled").length;
       const failed = results.filter(r => r.status === "rejected");
