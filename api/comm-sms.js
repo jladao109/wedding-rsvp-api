@@ -15,6 +15,7 @@ import {
   normLower,
   getSheetsClient,
   SCHEDULED_COMM_TAB,
+  COMM_HISTORY_TAB,
 } from "./_comm-helpers.js";
 
 function getTwilioClient() {
@@ -218,6 +219,44 @@ async function updateScheduledStatus({ scheduled, status, sentAt = "", notes = "
   });
 }
 
+function parseCommHistoryRow(row, index) {
+  return {
+    sheetRowNumber: index + 2,
+    timestamp: row[0] || "",
+    channel: row[1] || "",
+    direction: row[2] || "",
+    partyId: row[3] || "",
+    rowNumber: row[4] || "",
+    recipient: row[5] || "",
+    messageSid: row[6] || "",
+    subject: row[7] || "",
+    message: row[8] || "",
+    status: row[9] || "",
+    eventType: row[10] || "",
+    scheduledId: row[11] || "",
+    notes: row[12] || "",
+    statusUpdatedAt: row[13] || "",
+    errorCode: row[14] || "",
+    errorMessage: row[15] || "",
+    retryOf: row[16] || "",
+  };
+}
+
+async function readCommHistoryRows() {
+  const sheets = await getSheetsClient();
+
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.SPREADSHEET_ID,
+    range: `${COMM_HISTORY_TAB}!A2:Q`,
+  });
+
+  return (response.data.values || []).map(parseCommHistoryRow);
+}
+
+function getRetryReference(historyItem) {
+  return historyItem.messageSid || `HistoryRow:${historyItem.sheetRowNumber}`;
+}
+
 async function recordSmsResult({
   recipient,
   body,
@@ -227,6 +266,7 @@ async function recordSmsResult({
   subject = "SMS",
   eventType = "SMS_SEND",
   scheduledId = "",
+  retryOf = "",
 }) {
   const timestamp = new Date().toISOString();
 
@@ -243,6 +283,7 @@ async function recordSmsResult({
     eventType,
     scheduledId,
     notes: error || "",
+    retryOf,
   });
 
   if (status === "SENT" && recipient?.rowNumber) {
@@ -545,6 +586,103 @@ export default async function handler(req, res) {
         ok: true,
         checked: scheduledRows.length,
         due: due.length,
+        results,
+      });
+    }
+
+    if (action === "retryFailedSms") {
+      const historyRows = await readCommHistoryRows();
+    
+      const failedRows = historyRows.filter((item) => {
+        if (String(item.channel).toUpperCase() !== "SMS") return false;
+        if (String(item.direction).toUpperCase() !== "OUTBOUND") return false;
+        if (String(item.status).toUpperCase() !== "FAILED") return false;
+        if (!item.recipient) return false;
+        if (!item.message) return false;
+        return true;
+      });
+    
+      if (!failedRows.length) {
+        return res.json({
+          ok: true,
+          retried: 0,
+          sent: 0,
+          failed: 0,
+          message: "No failed SMS rows found to retry.",
+        });
+      }
+    
+      const settled = await sendInChunks(
+        failedRows,
+        5,
+        (item) => {
+          const body = validateSmsBody(item.message);
+    
+          return sendOneSms({
+            to: item.recipient,
+            body,
+          });
+        }
+      );
+    
+      const results = [];
+    
+      for (let i = 0; i < settled.length; i++) {
+        const r = settled[i];
+        const item = failedRows[i];
+    
+        const recipient = {
+          partyId: item.partyId,
+          rowNumber: item.rowNumber,
+          phone: item.recipient,
+        };
+    
+        const error =
+          r.status === "rejected"
+            ? (r.reason?.message || String(r.reason))
+            : "";
+    
+        await recordSmsResult({
+          recipient,
+          body: item.message,
+          result: r.status === "fulfilled" ? r.value : null,
+          status: r.status === "fulfilled" ? "SENT" : "FAILED",
+          error,
+          subject: item.subject || "SMS Retry",
+          eventType: "SMS_RETRY",
+          scheduledId: item.scheduledId || "",
+          retryOf: getRetryReference(item),
+        });
+    
+        results.push({
+          originalHistoryRow: item.sheetRowNumber,
+          retryOf: getRetryReference(item),
+          phone: item.recipient,
+          partyId: item.partyId,
+          rowNumber: item.rowNumber,
+          status: r.status === "fulfilled" ? "SENT" : "FAILED",
+          sid: r.status === "fulfilled" ? r.value.sid : null,
+          error,
+        });
+      }
+    
+      const sent = results.filter(r => r.status === "SENT").length;
+      const failed = results.filter(r => r.status === "FAILED").length;
+    
+      await appendCommLog({
+        channel: "SMS",
+        audience: { retryFailedSms: true },
+        subject: "Retry Failed SMS",
+        count: sent,
+        status: failed ? "PARTIAL" : "SENT",
+        notes: failed ? `${failed} failed` : `${sent} retried successfully`,
+      });
+    
+      return res.json({
+        ok: true,
+        retried: failedRows.length,
+        sent,
+        failed,
         results,
       });
     }
