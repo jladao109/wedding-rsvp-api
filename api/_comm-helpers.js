@@ -401,13 +401,17 @@ export async function appendCommHistory({
   eventType = "",
   scheduledId = "",
   notes = "",
+  statusUpdatedAt = "",
+  errorCode = "",
+  errorMessage = "",
+  retryOf = "",
 }) {
   try {
     const sheets = await getSheetsClient();
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: process.env.SPREADSHEET_ID,
-      range: `${COMM_HISTORY_TAB}!A:M`,
+      range: `${COMM_HISTORY_TAB}!A:Q`,
       valueInputOption: "USER_ENTERED",
       insertDataOption: "INSERT_ROWS",
       requestBody: {
@@ -425,6 +429,10 @@ export async function appendCommHistory({
           eventType,
           scheduledId,
           notes,
+          statusUpdatedAt,
+          errorCode,
+          errorMessage,
+          retryOf,
         ]],
       },
     });
