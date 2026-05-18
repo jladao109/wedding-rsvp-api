@@ -10,6 +10,7 @@ import {
   isValidEmail,
   getSheetsClient,
   SCHEDULED_COMM_TAB,
+  COMM_HISTORY_TAB,
 } from "./_comm-helpers.js";
 
 async function sendOneEmail({ to, subject, html, text }) {
@@ -113,6 +114,54 @@ async function updateScheduledStatus({ scheduled, status, sentAt = "", notes = "
   });
 }
 
+function parseCommHistoryRow(row, index) {
+  return {
+    sheetRowNumber: index + 2,
+    timestamp: row[0] || "",
+    channel: row[1] || "",
+    direction: row[2] || "",
+    partyId: row[3] || "",
+    rowNumber: row[4] || "",
+    recipient: row[5] || "",
+    messageSid: row[6] || "",
+    subject: row[7] || "",
+    message: row[8] || "",
+    status: row[9] || "",
+    eventType: row[10] || "",
+    scheduledId: row[11] || "",
+    notes: row[12] || "",
+    statusUpdatedAt: row[13] || "",
+    errorCode: row[14] || "",
+    errorMessage: row[15] || "",
+    retryOf: row[16] || "",
+  };
+}
+
+async function readCommHistoryRows() {
+  const sheets = await getSheetsClient();
+
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.SPREADSHEET_ID,
+    range: `${COMM_HISTORY_TAB}!A2:Q`,
+  });
+
+  return (response.data.values || []).map(parseCommHistoryRow);
+}
+
+function makeEmailRetryDedupeKey(item) {
+  return [
+    String(item.channel).toUpperCase(),
+    String(item.direction).toUpperCase(),
+    String(item.recipient || "").trim().toLowerCase(),
+    String(item.subject || "").trim(),
+    String(item.message || "").trim(),
+  ].join("|");
+}
+
+function getRetryReference(historyItem) {
+  return historyItem.messageSid || `HistoryRow:${historyItem.sheetRowNumber}`;
+}
+
 async function recordEmailResult({
   recipient,
   subject,
@@ -122,6 +171,7 @@ async function recordEmailResult({
   error = "",
   eventType = "EMAIL_SEND",
   scheduledId = "",
+  retryOf = "",
 }) {
   const timestamp = new Date().toISOString();
 
@@ -138,6 +188,7 @@ async function recordEmailResult({
     eventType,
     scheduledId,
     notes: error || "",
+    retryOf,
   });
 
   if (status === "SENT" && recipient?.rowNumber) {
@@ -434,6 +485,128 @@ export default async function handler(req, res) {
         status: "PENDING",
         sendAt: sendAtDate.toISOString(),
         count: recipients.length,
+      });
+    }
+
+    if (action === "retryFailedEmail") {
+      const historyRows = await readCommHistoryRows();
+    
+      const successfulEmailKeys = new Set(
+        historyRows
+          .filter((item) => {
+            const status = String(item.status).toUpperCase();
+    
+            return (
+              String(item.channel).toUpperCase() === "EMAIL" &&
+              String(item.direction).toUpperCase() === "OUTBOUND" &&
+              ["SENT", "DELIVERED"].includes(status) &&
+              item.recipient &&
+              item.subject &&
+              item.message
+            );
+          })
+          .map(makeEmailRetryDedupeKey)
+      );
+    
+      const failedRows = historyRows.filter((item) => {
+        if (String(item.channel).toUpperCase() !== "EMAIL") return false;
+        if (String(item.direction).toUpperCase() !== "OUTBOUND") return false;
+        if (String(item.status).toUpperCase() !== "FAILED") return false;
+        if (!item.recipient) return false;
+        if (!item.subject) return false;
+        if (!item.message) return false;
+    
+        if (successfulEmailKeys.has(makeEmailRetryDedupeKey(item))) {
+          return false;
+        }
+    
+        return true;
+      });
+    
+      if (!failedRows.length) {
+        return res.json({
+          ok: true,
+          retried: 0,
+          sent: 0,
+          failed: 0,
+          message: "No failed email rows found to retry.",
+        });
+      }
+    
+      const settled = await sendInChunks(
+        failedRows,
+        5,
+        (item) => {
+          const text = buildTextFromHtml(item.message);
+    
+          return sendOneEmail({
+            to: item.recipient,
+            subject: item.subject,
+            html: item.message,
+            text,
+          });
+        }
+      );
+    
+      const results = [];
+    
+      for (let i = 0; i < settled.length; i++) {
+        const r = settled[i];
+        const item = failedRows[i];
+    
+        const recipient = {
+          partyId: item.partyId,
+          rowNumber: item.rowNumber,
+          email: item.recipient,
+        };
+    
+        const error =
+          r.status === "rejected"
+            ? (r.reason?.message || String(r.reason))
+            : "";
+    
+        await recordEmailResult({
+          recipient,
+          subject: item.subject,
+          html: item.message,
+          result: r.status === "fulfilled" ? r.value : null,
+          status: r.status === "fulfilled" ? "SENT" : "FAILED",
+          error,
+          eventType: "EMAIL_RETRY",
+          scheduledId: item.scheduledId || "",
+          retryOf: getRetryReference(item),
+        });
+    
+        results.push({
+          originalHistoryRow: item.sheetRowNumber,
+          retryOf: getRetryReference(item),
+          email: item.recipient,
+          partyId: item.partyId,
+          rowNumber: item.rowNumber,
+          status: r.status === "fulfilled" ? "SENT" : "FAILED",
+          id: r.status === "fulfilled" ? r.value?.id : null,
+          error,
+        });
+      }
+    
+      const sent = results.filter(r => r.status === "SENT").length;
+      const failed = results.filter(r => r.status === "FAILED").length;
+    
+      await appendCommLog({
+        channel: "EMAIL",
+        audience: { retryFailedEmail: true },
+        subject: "Retry Failed Email",
+        count: sent,
+        status: failed ? "PARTIAL" : "SENT",
+        notes: failed ? `${failed} failed` : `${sent} retried successfully`,
+      });
+    
+      return res.json({
+        ok: true,
+        retried: failedRows.length,
+        sent,
+        failed,
+        results,
       });
     }
 
