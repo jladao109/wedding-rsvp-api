@@ -407,87 +407,6 @@ export default async function handler(req, res) {
       });
     }
 
-    if (!subject) return res.status(400).json({ error: "Subject is required." });
-    if (!html) return res.status(400).json({ error: "HTML is required." });
-
-    const text = buildTextFromHtml(html);
-
-    if (action === "scheduleEmail") {
-      const sendAt = String(req.body?.sendAt || "").trim();
-
-      if (!sendAt) {
-        return res.status(400).json({ error: "Scheduled send time is required." });
-      }
-
-      const sendAtDate = new Date(sendAt);
-      if (Number.isNaN(sendAtDate.getTime())) {
-        return res.status(400).json({ error: "Scheduled send time is invalid." });
-      }
-
-      if (sendAtDate.getTime() <= Date.now()) {
-        return res.status(400).json({ error: "Scheduled send time must be in the future." });
-      }
-
-      const rows = await readGuestRows();
-      const recipients = getEmailRecipients(rows, req.body || {});
-
-      if (!recipients.length) {
-        return res.status(400).json({ error: "No eligible email recipients found for this schedule." });
-      }
-
-      const id = makeScheduleId();
-      const createdAt = new Date().toISOString();
-
-      const audience = {
-        includeAudiences: req.body?.includeAudiences || [],
-        excludeAudiences: req.body?.excludeAudiences || [],
-        includePartyIds: req.body?.includePartyIds || [],
-        includeRowNumbers: req.body?.includeRowNumbers || [],
-        excludePartyIds: req.body?.excludePartyIds || [],
-        excludeRowNumbers: req.body?.excludeRowNumbers || [],
-      };
-
-      const sheets = await getSheetsClient();
-
-      await sheets.spreadsheets.values.append({
-        spreadsheetId: process.env.SPREADSHEET_ID,
-        range: `${SCHEDULED_COMM_TAB}!A:J`,
-        valueInputOption: "USER_ENTERED",
-        insertDataOption: "INSERT_ROWS",
-        requestBody: {
-          values: [[
-            id,
-            "EMAIL",
-            "PENDING",
-            sendAtDate.toISOString(),
-            subject,
-            html,
-            JSON.stringify(audience),
-            createdAt,
-            "",
-            `Scheduled for ${recipients.length} recipient(s).`,
-          ]],
-        },
-      });
-
-      await appendCommLog({
-        channel: "EMAIL",
-        audience,
-        subject,
-        count: recipients.length,
-        status: "SCHEDULED",
-        notes: id,
-      });
-
-      return res.json({
-        ok: true,
-        id,
-        status: "PENDING",
-        sendAt: sendAtDate.toISOString(),
-        count: recipients.length,
-      });
-    }
-
     if (action === "retryFailedEmail") {
       const historyRows = await readCommHistoryRows();
     
@@ -609,6 +528,87 @@ export default async function handler(req, res) {
         results,
       });
     }
+
+    if (!subject) return res.status(400).json({ error: "Subject is required." });
+    if (!html) return res.status(400).json({ error: "HTML is required." });
+
+    const text = buildTextFromHtml(html);
+
+    if (action === "scheduleEmail") {
+      const sendAt = String(req.body?.sendAt || "").trim();
+
+      if (!sendAt) {
+        return res.status(400).json({ error: "Scheduled send time is required." });
+      }
+
+      const sendAtDate = new Date(sendAt);
+      if (Number.isNaN(sendAtDate.getTime())) {
+        return res.status(400).json({ error: "Scheduled send time is invalid." });
+      }
+
+      if (sendAtDate.getTime() <= Date.now()) {
+        return res.status(400).json({ error: "Scheduled send time must be in the future." });
+      }
+
+      const rows = await readGuestRows();
+      const recipients = getEmailRecipients(rows, req.body || {});
+
+      if (!recipients.length) {
+        return res.status(400).json({ error: "No eligible email recipients found for this schedule." });
+      }
+
+      const id = makeScheduleId();
+      const createdAt = new Date().toISOString();
+
+      const audience = {
+        includeAudiences: req.body?.includeAudiences || [],
+        excludeAudiences: req.body?.excludeAudiences || [],
+        includePartyIds: req.body?.includePartyIds || [],
+        includeRowNumbers: req.body?.includeRowNumbers || [],
+        excludePartyIds: req.body?.excludePartyIds || [],
+        excludeRowNumbers: req.body?.excludeRowNumbers || [],
+      };
+
+      const sheets = await getSheetsClient();
+
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: process.env.SPREADSHEET_ID,
+        range: `${SCHEDULED_COMM_TAB}!A:J`,
+        valueInputOption: "USER_ENTERED",
+        insertDataOption: "INSERT_ROWS",
+        requestBody: {
+          values: [[
+            id,
+            "EMAIL",
+            "PENDING",
+            sendAtDate.toISOString(),
+            subject,
+            html,
+            JSON.stringify(audience),
+            createdAt,
+            "",
+            `Scheduled for ${recipients.length} recipient(s).`,
+          ]],
+        },
+      });
+
+      await appendCommLog({
+        channel: "EMAIL",
+        audience,
+        subject,
+        count: recipients.length,
+        status: "SCHEDULED",
+        notes: id,
+      });
+
+      return res.json({
+        ok: true,
+        id,
+        status: "PENDING",
+        sendAt: sendAtDate.toISOString(),
+        count: recipients.length,
+      });
+    }    
 
     if (testMode) {
       if (!testEmail) return res.status(400).json({ error: "Test email is required for test mode." });
