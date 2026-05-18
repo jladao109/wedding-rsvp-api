@@ -27,7 +27,7 @@ function isStart(body, optOutType) {
   const type = norm(optOutType).toUpperCase();
 
   return type === "START" ||
-    ["START", "YES", "UNSTOP"].includes(text);
+    ["START", "UNSTOP"].includes(text);
 }
 
 function formatPhoneListForSheet(phoneSet) {
@@ -181,6 +181,37 @@ async function updateEventReplyByPhone({ fromPhone, intent }) {
   return { matched: updates.length, updated: updates.length };
 }
 
+function escapeXml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function getConfirmationMessage(intent) {
+  if (!intent) return "";
+
+  if (intent.event === "REHEARSAL" && intent.response === "YES") {
+    return "Yvette & Jason: Thank you, we received your rehearsal dinner RSVP.";
+  }
+
+  if (intent.event === "REHEARSAL" && intent.response === "NO") {
+    return "Yvette & Jason: Thank you, we received your rehearsal dinner response.";
+  }
+
+  if (intent.event === "LUNCH" && intent.response === "YES") {
+    return "Yvette & Jason: Thank you, we received your post-wedding lunch RSVP.";
+  }
+
+  if (intent.event === "LUNCH" && intent.response === "NO") {
+    return "Yvette & Jason: Thank you, we received your post-wedding lunch response.";
+  }
+
+  return "";
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).send("Use POST");
@@ -220,7 +251,16 @@ export default async function handler(req, res) {
       });
     }
 
+    const confirmationMessage = getConfirmationMessage(replyIntent);
+
     res.setHeader("Content-Type", "text/xml");
+
+    if (confirmationMessage) {
+      return res.status(200).send(
+        `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(confirmationMessage)}</Message></Response>`
+      );
+    }
+
     return res.status(200).send(`<?xml version="1.0" encoding="UTF-8"?><Response></Response>`);
   } catch (err) {
     console.error("TWILIO INBOUND ERROR:", err);
