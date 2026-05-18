@@ -3,6 +3,10 @@
     {
       "path": "/api/comm-sms?action=runScheduled",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/comm-send-email?action=runScheduledEmail",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
