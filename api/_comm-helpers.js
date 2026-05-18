@@ -5,6 +5,12 @@ export const COMM_LOG_TAB = process.env.COMM_LOG_TAB || "Comm Log";
 export const SCHEDULED_COMM_TAB =
   process.env.SCHEDULED_COMM_TAB || "Scheduled Communications";
 
+export const COMM_HISTORY_TAB =
+  process.env.COMM_HISTORY_TAB || "Communication History";
+
+export const COMM_TEMPLATES_TAB =
+  process.env.COMM_TEMPLATES_TAB || "Communication Templates";
+
 export function norm(s) {
   return String(s ?? "").trim();
 }
@@ -68,6 +74,47 @@ function normalizeRowNumberList(input) {
     .filter(v => Number.isFinite(v) && v > 0);
 }
 
+export async function updateLastContacted({
+  rowNumber,
+  channel,
+  timestamp = new Date().toISOString(),
+}) {
+  if (!rowNumber) return;
+
+  const sheets = await getSheetsClient();
+
+  const upperChannel = norm(channel).toUpperCase();
+
+  const updates = [
+    {
+      range: `${TAB_NAME}!V${rowNumber}`,
+      values: [[timestamp]],
+    },
+  ];
+
+  if (upperChannel === "SMS") {
+    updates.push({
+      range: `${TAB_NAME}!T${rowNumber}`,
+      values: [[timestamp]],
+    });
+  }
+
+  if (upperChannel === "EMAIL") {
+    updates.push({
+      range: `${TAB_NAME}!U${rowNumber}`,
+      values: [[timestamp]],
+    });
+  }
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: process.env.SPREADSHEET_ID,
+    requestBody: {
+      valueInputOption: "USER_ENTERED",
+      data: updates,
+    },
+  });
+}
+
 export function setCors(req, res) {
   const origin = req.headers.origin;
   const allowed = new Set([
@@ -125,7 +172,7 @@ export async function readGuestRows() {
 
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.SPREADSHEET_ID,
-    range: `${TAB_NAME}!A2:S`,
+    range: `${TAB_NAME}!A2:V`,
   });
 
   const rows = response.data.values || [];
@@ -159,6 +206,9 @@ export async function readGuestRows() {
       postWeddingLunchDeclined: norm(row[17]).toUpperCase() === "N", // Column R
       smsOptOutRaw: norm(row[18]), // Column S
       smsOptOut: isChecked(row[18]),
+      lastSmsContacted: norm(row[19]),   // T
+      lastEmailContacted: norm(row[20]), // U
+      lastContacted: norm(row[21]),      // V
     };
   });
 }
@@ -336,6 +386,73 @@ export async function appendCommLog({
   } catch (err) {
     console.error("COMM LOG ERROR:", err);
   }
+}
+
+export async function appendCommHistory({
+  channel = "",
+  direction = "",
+  partyId = "",
+  rowNumber = "",
+  recipient = "",
+  messageSid = "",
+  subject = "",
+  message = "",
+  status = "",
+  eventType = "",
+  scheduledId = "",
+  notes = "",
+}) {
+  try {
+    const sheets = await getSheetsClient();
+
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: process.env.SPREADSHEET_ID,
+      range: `${COMM_HISTORY_TAB}!A:M`,
+      valueInputOption: "USER_ENTERED",
+      insertDataOption: "INSERT_ROWS",
+      requestBody: {
+        values: [[
+          new Date().toISOString(),
+          channel,
+          direction,
+          partyId,
+          rowNumber,
+          recipient,
+          messageSid,
+          subject,
+          message,
+          status,
+          eventType,
+          scheduledId,
+          notes,
+        ]],
+      },
+    });
+  } catch (err) {
+    console.error("COMM HISTORY ERROR:", err);
+  }
+}
+
+export async function readCommTemplates() {
+  const sheets = await getSheetsClient();
+
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.SPREADSHEET_ID,
+    range: `${COMM_TEMPLATES_TAB}!A2:F`,
+  });
+
+  const rows = response.data.values || [];
+
+  return rows
+    .map((row) => ({
+      id: norm(row[0]),
+      channel: norm(row[1]).toUpperCase(),
+      title: norm(row[2]),
+      subject: norm(row[3]),
+      message: norm(row[4]),
+      active: isChecked(row[5]),
+    }))
+    .filter(t => t.id && t.active !== false);
 }
 
 export function buildTextFromHtml(html) {
