@@ -429,7 +429,7 @@ export default async function handler(req, res) {
       return res.json({
         ok: true,
         scheduled: scheduled
-          .filter((item) => item.id)
+          .filter((item) => item.id && item.type === "SMS")
           .reverse(),
       });
     }
