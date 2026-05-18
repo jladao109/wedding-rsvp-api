@@ -380,6 +380,8 @@ export default async function handler(req, res) {
         includeRowNumbers: req.body?.includeRowNumbers || [],
         excludePartyIds: req.body?.excludePartyIds || [],
         excludeRowNumbers: req.body?.excludeRowNumbers || [],
+        includeSmsPhones: req.body?.includeSmsPhones || [],
+        excludeSmsPhones: req.body?.excludeSmsPhones || [],
       };
     
       const sheets = await getSheetsClient();
@@ -822,6 +824,8 @@ export default async function handler(req, res) {
           includeRowNumbers: req.body?.includeRowNumbers || [],
           excludePartyIds: req.body?.excludePartyIds || [],
           excludeRowNumbers: req.body?.excludeRowNumbers || [],
+          includeSmsPhones: req.body?.includeSmsPhones || [],
+          excludeSmsPhones: req.body?.excludeSmsPhones || [],
         },
         subject: "SMS Send",
         count: sent,
